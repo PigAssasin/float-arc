@@ -102,7 +102,8 @@ export function FloatAssistant() {
     const STATUS_LABELS = ["Pending Approval", "Pending Collateral", "Funded", "Paid", "Defaulted", "Cancelled"];
 
     return {
-      walletAddress: address ? `${address.slice(0, 6)}...${address.slice(-4)}` : undefined,
+      // Full address so the assistant's tools can read this user's on-chain data.
+      walletAddress: address ?? undefined,
       role,
       creditScore: score,
       advanceRate,

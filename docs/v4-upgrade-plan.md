@@ -293,7 +293,7 @@ so DeepSeek can query live chain data via tools instead of relying only on injec
 - [ ] Ask "what's my advance rate" → calls `get_my_score`.
 - [ ] Vietnamese answers still render correctly (multibyte SSE).
 
-**✅ Checkpoint 6:** Assistant answers invoice/score/pool questions using live tool calls; streaming + Vietnamese intact.
+**✅ Checkpoint 6 [DONE]:** Assistant answers via live tool calls — verified end to end against deployed v4: "available liquidity" → get_pool_stats returned exact 83.93 USDC; EN + VN score questions → get_my_score returned New tier / 75% / 10% / fLP 83.93 with correct multibyte rendering. 4 tools (pool, score, invoices, detail), 3-round tool loop, full-address passed from the client. tsc + build clean.
 
 ---
 

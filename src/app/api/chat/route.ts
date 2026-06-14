@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { TOOL_SPECS, runTool } from "@/lib/server-rpc";
 
 export const runtime = "edge";
 
@@ -56,7 +57,7 @@ So if a seller has a Good tier score and creates a $10,000 invoice:
 | Good      | 71-85  | 84%     | 6%             |
 | Excellent | 86-100 | 88%     | 5%             |
 
-New wallets start at score 0. Score increases when buyers pay on time.
+A brand-new wallet has no history: it shows score 50 but is treated as the New tier (75% advance, 10% stake) until it builds a track record. Always trust the tier returned by get_my_score over the raw score number. Score rises as buyers pay on time.
 
 ## Buyer Role
 - Buyers see invoices assigned to them
@@ -118,6 +119,10 @@ ${
     : "\n## Live Pool Data: not available (user not connected)"
 }
 
+## Live Data Tools
+You can call tools to read live on-chain data: get_pool_stats, get_my_score, get_my_invoices, get_invoice_detail.
+When the user asks about specific numbers (their score, a specific invoice id, pool liquidity, their fLP balance, why an invoice is in some state), CALL the relevant tool instead of guessing. The connected wallet address is used by default. Prefer tool data over the static snapshot above.
+
 ## Response Rules
 - Match the user's language exactly: if they write in Vietnamese, reply fully in Vietnamese; if English, reply in English
 - When writing Vietnamese, write complete words — never abbreviate or shorten Vietnamese words
@@ -130,91 +135,93 @@ ${
 - Be warm and approachable, not robotic`;
 }
 
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+};
+
+type ChatMessage = {
+  role: string;
+  content: string | null;
+  tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
+  tool_call_id?: string;
+};
+
+async function callDeepSeek(body: Record<string, unknown>) {
+  return fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({ model: "deepseek-chat", temperature: 0.7, max_tokens: 500, ...body }),
+  });
+}
+
+// Emit a complete string to the client as the same SSE token protocol the UI expects.
+function sseFromText(text: string): Response {
+  const encoder = new TextEncoder();
+  const parts = text.match(/[\s\S]{1,24}/g) ?? (text ? [text] : []);
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const p of parts) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: p })}\n\n`));
+      }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
+}
+
 export async function POST(req: NextRequest) {
   const { messages, context } = (await req.json()) as {
     messages: { role: string; content: string }[];
     context?: ChatContext;
   };
 
-  const systemPrompt = buildSystemPrompt(context ?? {});
+  const ctx = context ?? {};
+  const systemPrompt = buildSystemPrompt(ctx);
+  const defaultAddress = ctx.walletAddress;
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "deepseek-chat",
-      stream: true,
-      max_tokens: 400,
-      temperature: 0.7,
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-    }),
-  });
+  // Tool-resolution loop: let the model request live on-chain reads, run them,
+  // feed results back, until it produces a normal answer (max 3 rounds).
+  const working: ChatMessage[] = [{ role: "system", content: systemPrompt }, ...messages];
 
-  if (!response.ok) {
-    const err = await response.text();
-    return new Response(JSON.stringify({ error: err }), {
+  try {
+    for (let round = 0; round < 3; round++) {
+      const resp = await callDeepSeek({ messages: working, tools: TOOL_SPECS, tool_choice: "auto" });
+      if (!resp.ok) {
+        const err = await resp.text();
+        return new Response(JSON.stringify({ error: err }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+      const data = await resp.json();
+      const msg = data.choices?.[0]?.message as ChatMessage | undefined;
+
+      if (msg?.tool_calls?.length) {
+        working.push({ role: "assistant", content: msg.content ?? "", tool_calls: msg.tool_calls });
+        for (const tc of msg.tool_calls) {
+          let parsedArgs: Record<string, unknown> = {};
+          try { parsedArgs = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
+          const result = await runTool(tc.function.name, parsedArgs, defaultAddress);
+          working.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
+        }
+        continue; // ask the model again now that it has the data
+      }
+
+      // No tool call → this is the final answer.
+      return sseFromText(msg?.content ?? "");
+    }
+
+    // Exhausted tool rounds — force a final answer without tools.
+    const finalResp = await callDeepSeek({ messages: working });
+    const finalData = await finalResp.json();
+    return sseFromText(finalData.choices?.[0]?.message?.content ?? "I could not complete that request.");
+  } catch (e) {
+    return new Response(JSON.stringify({ error: (e as Error).message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  // Re-stream DeepSeek SSE to client, robust \r\n handling
-  const encoder = new TextEncoder();
-  let leftover = "";
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder("utf-8", { fatal: false });
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          // Prepend any leftover from previous chunk
-          const text = leftover + decoder.decode(value, { stream: true });
-          const lines = text.split(/\r?\n/);
-
-          // Last element may be incomplete — save for next iteration
-          leftover = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-              controller.close();
-              return;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              const token: string = parsed.choices?.[0]?.delta?.content ?? "";
-              if (token) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ token })}\n\n`)
-                );
-              }
-            } catch {
-              // incomplete JSON chunk — skip
-            }
-          }
-        }
-      } catch {
-        // stream aborted
-      }
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
 }
