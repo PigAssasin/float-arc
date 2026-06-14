@@ -179,6 +179,63 @@ describe("Float v3 — FloatPool + FloatCore", function () {
     });
   });
 
+  // ─── Partial repayment / installments ───────────────────────────────────────
+
+  describe("Partial repayment", function () {
+    it("settles after cumulative installments reach face value (once)", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const sellerBefore = await usdc.balanceOf(seller.address);
+      const { id, due } = await fundInvoice(USDC(1000));
+
+      await core.connect(buyer).payPartial(id, USDC(400));
+      expect((await core.getInvoice(id)).amountPaid).to.equal(USDC(400));
+      expect((await core.getInvoice(id)).status).to.equal(Status.FUNDED);
+
+      await core.connect(buyer).payPartial(id, USDC(300));
+      expect((await core.getInvoice(id)).status).to.equal(Status.FUNDED);
+
+      // Final installment settles it.
+      await expect(core.connect(buyer).payPartial(id, USDC(300)))
+        .to.emit(core, "InvoicePaid");
+
+      const inv = await core.getInvoice(id);
+      expect(inv.status).to.equal(Status.PAID);
+      expect(inv.amountPaid).to.equal(USDC(1000));
+      // seller got net advance 650 + stake 100 back = 750; scored once
+      expect(await usdc.balanceOf(seller.address) - sellerBefore).to.equal(USDC(750));
+      expect(await core.sellerPaidCount(seller.address)).to.equal(1);
+      expect(await pool.insuranceReserve()).to.equal(USDC(10)); // funded once
+      await assertPoolInvariant();
+      void due;
+    });
+
+    it("overpaying a partial reverts", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const { id } = await fundInvoice(USDC(1000));
+      await core.connect(buyer).payPartial(id, USDC(600));
+      await expect(core.connect(buyer).payPartial(id, USDC(500)))
+        .to.be.revertedWithCustomError(core, "Overpayment");
+    });
+
+    it("payInvoice after a partial pays only the discounted remainder", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const { id } = await fundInvoice(USDC(1000));
+      await core.connect(buyer).payPartial(id, USDC(600));
+
+      const [amountDue, discount] = await core.earlyRepayAmount(id);
+      expect(discount).to.be.greaterThan(0);           // remainder paid early
+      expect(amountDue).to.equal(USDC(400) - discount); // discount on the 400 remainder
+
+      const buyerBefore = await usdc.balanceOf(buyer.address);
+      await core.connect(buyer).payInvoice(id);
+      // pays discounted remainder, then collateral refunds → net = amountDue - collateral
+      const collateral = (await core.getInvoice(id)).collateral;
+      expect(buyerBefore - await usdc.balanceOf(buyer.address)).to.equal(amountDue - collateral);
+      expect((await core.getInvoice(id)).status).to.equal(Status.PAID);
+      await assertPoolInvariant();
+    });
+  });
+
   // ─── Default waterfall ───────────────────────────────────────────────────────
 
   describe("Default waterfall", function () {

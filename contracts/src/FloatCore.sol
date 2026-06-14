@@ -32,6 +32,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
         uint256 dueDate;     // unix timestamp for payment
         uint256 createdAt;   // for timeout + early repayment calc
         uint256 approvedAt;  // when buyer approved (collateral timeout clock)
+        uint256 amountPaid;  // cumulative face value paid (installments)
         InvoiceStatus status;
     }
 
@@ -86,6 +87,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
     error NotAttestor(address caller);
     error NotVerified(address who);
     error ExposureCapExceeded(uint256 attempted, uint256 cap);
+    error Overpayment(uint256 attempted, uint256 remaining);
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
@@ -104,6 +106,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
     event CollateralLocked(uint256 indexed id, address indexed buyer, uint256 amount);
     event InvoiceFunded(uint256 indexed id, uint256 netDisbursed, uint256 stakeWithheld);
     event InvoicePaid(uint256 indexed id, address indexed buyer, uint256 amountPaid, uint256 discount);
+    event PartialPayment(uint256 indexed id, uint256 amount, uint256 totalPaid);
     event CollateralReturned(uint256 indexed id, address indexed buyer, uint256 amount);
     event SellerStakeReturned(uint256 indexed id, address indexed seller, uint256 amount);
     event InvoiceDefaulted(uint256 indexed id, address indexed seller, uint256 collateralSlashed, uint256 stakeSlashed);
@@ -194,6 +197,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
             dueDate:    dueTimestamp,
             createdAt:  block.timestamp,
             approvedAt: 0,
+            amountPaid: 0,
             status:     InvoiceStatus.PENDING_APPROVAL
         });
 
@@ -279,8 +283,9 @@ contract FloatCore is ReentrancyGuard, Ownable {
 
     // ─── Buyer: pay invoice ────────────────────────────────────────────────────
 
-    /// Pay a funded invoice. Early repayment earns a discount (up to 2%).
-    /// Collateral returned to buyer, stake returned to seller, 1% fee to insurance reserve.
+    /// Pay the full remaining balance of a funded invoice in one shot.
+    /// Early repayment of the remainder earns a discount (up to 2%).
+    /// On settlement: collateral returned to buyer, stake to seller, 1% fee to insurance.
     function payInvoice(uint256 id) external nonReentrant {
         Invoice storage inv = invoices[id];
         if (inv.seller == address(0)) revert InvoiceNotFound(id);
@@ -288,33 +293,67 @@ contract FloatCore is ReentrancyGuard, Ownable {
             revert WrongStatus(inv.status, InvoiceStatus.FUNDED);
         if (msg.sender != inv.buyer) revert NotBuyer(msg.sender, inv.buyer);
 
-        (uint256 amountDue, uint256 discount) = _earlyRepayAmount(inv);
-        uint256 insuranceFee = (inv.amount * INSURANCE_FEE_BPS) / 10_000;
+        uint256 remaining = inv.amount - inv.amountPaid;
+        (uint256 amountDue, uint256 discount) = _discountOn(inv, remaining);
 
         // EFFECTS
+        inv.amountPaid = inv.amount; // fully covered
+
+        // INTERACTIONS: pull the discounted remainder, then settle
+        usdc.safeTransferFrom(msg.sender, address(pool), amountDue);
+        _settle(id, discount);
+    }
+
+    /// Pay an installment toward a funded invoice. No early-payment discount on
+    /// partials (the discount is reserved for paying the whole remainder at once).
+    /// Auto-settles when the cumulative amount reaches the face value.
+    function payPartial(uint256 id, uint256 payAmount) external nonReentrant {
+        Invoice storage inv = invoices[id];
+        if (inv.seller == address(0)) revert InvoiceNotFound(id);
+        if (inv.status != InvoiceStatus.FUNDED)
+            revert WrongStatus(inv.status, InvoiceStatus.FUNDED);
+        if (msg.sender != inv.buyer) revert NotBuyer(msg.sender, inv.buyer);
+        if (payAmount == 0) revert ZeroAmount();
+
+        uint256 remaining = inv.amount - inv.amountPaid;
+        if (payAmount > remaining) revert Overpayment(payAmount, remaining);
+
+        // EFFECTS
+        inv.amountPaid += payAmount;
+        emit PartialPayment(id, payAmount, inv.amountPaid);
+
+        // INTERACTIONS
+        usdc.safeTransferFrom(msg.sender, address(pool), payAmount);
+
+        if (inv.amountPaid == inv.amount) {
+            _settle(id, 0);
+        }
+    }
+
+    /// Finalize a fully-covered invoice: mark PAID, update scores, return
+    /// collateral + stake, fund insurance. USDC for payment is already in the pool.
+    function _settle(uint256 id, uint256 discount) internal {
+        Invoice storage inv = invoices[id];
+        uint256 insuranceFee = (inv.amount * INSURANCE_FEE_BPS) / 10_000;
+
         inv.status = InvoiceStatus.PAID;
         sellerPaidCount[inv.seller]++;
         buyerPaidCount[inv.buyer]++;
         buyerTotalCount[inv.buyer]++;
         outstandingAdvance[inv.seller] -= inv.advance;
 
-        emit InvoicePaid(id, msg.sender, amountDue, discount);
-        emit CollateralReturned(id, msg.sender, inv.collateral);
+        emit InvoicePaid(id, inv.buyer, inv.amount - discount, discount);
+        emit CollateralReturned(id, inv.buyer, inv.collateral);
         emit SellerStakeReturned(id, inv.seller, inv.stake);
         emit SellerScoreUpdated(inv.seller, sellerScore(inv.seller));
         emit BuyerScoreUpdated(inv.buyer, buyerScore(inv.buyer));
 
-        // INTERACTIONS
-        // 1. Pull amountDue from buyer → pool
-        usdc.safeTransferFrom(msg.sender, address(pool), amountDue);
-        // 2. Return buyer collateral
-        pool.releaseCollateral(id, msg.sender);
-        // 3. Return seller stake
+        pool.releaseCollateral(id, inv.buyer);
         if (inv.stake > 0) {
             pool.releaseSellerStake(id, inv.seller);
         }
-        // 4. Fund insurance reserve (1% of face value, capped to amountDue to avoid over-draw)
-        if (insuranceFee > 0 && insuranceFee <= amountDue) {
+        // Total lifecycle payments (>= face - discount) back this fee.
+        if (insuranceFee > 0) {
             pool.fundInsurance(insuranceFee);
         }
     }
@@ -433,11 +472,11 @@ contract FloatCore is ReentrancyGuard, Ownable {
         return tierBps > coverBps ? tierBps : coverBps;
     }
 
-    /// Preview early repayment amount for a FUNDED invoice.
+    /// Preview the cost to pay off the REMAINING balance of a FUNDED invoice now.
     function earlyRepayAmount(uint256 id) external view returns (uint256 amountDue, uint256 discount) {
         Invoice storage inv = invoices[id];
         if (inv.seller == address(0)) revert InvoiceNotFound(id);
-        return _earlyRepayAmount(inv);
+        return _discountOn(inv, inv.amount - inv.amountPaid);
     }
 
     function getInvoice(uint256 id) external view returns (Invoice memory) {
@@ -446,16 +485,19 @@ contract FloatCore is ReentrancyGuard, Ownable {
 
     // ─── Internal ─────────────────────────────────────────────────────────────
 
-    function _earlyRepayAmount(Invoice storage inv) internal view returns (uint256 amountDue, uint256 discount) {
-        if (block.timestamp >= inv.dueDate) return (inv.amount, 0);
+    /// Apply the time-decayed early-payment discount to an arbitrary principal.
+    function _discountOn(Invoice storage inv, uint256 principal)
+        internal view returns (uint256 amountDue, uint256 discount)
+    {
+        if (principal == 0 || block.timestamp >= inv.dueDate) return (principal, 0);
 
         uint256 totalDuration = inv.dueDate - inv.createdAt;
-        if (totalDuration == 0) return (inv.amount, 0);
+        if (totalDuration == 0) return (principal, 0);
 
         uint256 timeLeft    = inv.dueDate - block.timestamp;
         uint256 discountBps = (timeLeft * MAX_DISCOUNT_BPS) / totalDuration;
 
-        discount  = (inv.amount * discountBps) / 10_000;
-        amountDue = inv.amount - discount;
+        discount  = (principal * discountBps) / 10_000;
+        amountDue = principal - discount;
     }
 }

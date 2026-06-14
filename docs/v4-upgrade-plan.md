@@ -231,7 +231,7 @@ Buyer can pay a funded invoice in multiple tranches before the due date.
 - [ ] `payInvoice` after a partial pays only the remainder; full early single-shot still gets discount.
 - [ ] Invariant holds across partial payments.
 
-**✅ Checkpoint 4:** Installment flow fully tested; struct now exposes `amountPaid`; full `npx hardhat test` green.
+**✅ Checkpoint 4 [DONE]:** 34 passing. `payPartial` accrues installments and auto-settles once at face value (collateral/stake/insurance handled once); overpay reverts; `payInvoice` pays the discounted remainder after partials. Struct exposes `amountPaid`; `earlyRepayAmount` previews the remaining balance.
 
 ---
 
