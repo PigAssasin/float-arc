@@ -305,15 +305,29 @@ so DeepSeek can query live chain data via tools instead of relying only on injec
 - [x] Update [README.md](../README.md): v4 addresses, new features. AI-attribution-free, no personal info.
 - [x] Update [CLAUDE.md](../CLAUDE.md) contract addresses (local; gitignored).
 - [x] Merge `feat/v4` → `master`, push, tag `v4.0`.
-- [ ] **MANUAL (Vercel CLI not installed):** update Vercel env vars then redeploy:
-  - `NEXT_PUBLIC_FLOAT_POOL_ADDRESS=0x98bF7f0572f542fBD6365531D39C657779839375`
-  - `NEXT_PUBLIC_FLOAT_CORE_ADDRESS=0x336Be2095425ac463c6E121461B68401c3209c85`
-  - `DEEPSEEK_API_KEY=<key>` (server-side; required for the assistant)
-  - Then `npm i -g vercel && vercel --prod --yes && vercel alias <url> float-arc.vercel.app`
-    (or set the vars in the Vercel dashboard and Redeploy). If the GitHub repo is connected to
-    Vercel, the master push already triggered a build — just fix the env vars and redeploy.
+- [x] **Deployed to Vercel production.** Vercel CLI was in fact installed and logged in (pigassasin).
+  The "float" project has NO `NEXT_PUBLIC_FLOAT_*` env vars, so it uses the v4 code defaults
+  automatically — no env var change needed. `DEEPSEEK_API_KEY` already set on the project.
+  Added `float-arc.vercel.app` as a project domain and aliased the production deploy to it.
+- [x] Live verified public on **https://float-arc.vercel.app** (200) and the assistant API
+  returns correct v4 on-chain data (TVL/liquidity 83.93 USDC).
 
-**✅ Checkpoint 7 [DONE, except Vercel deploy]:** Tests green (34), build clean, AI verified, docs updated, merged to master + tagged v4.0 + pushed. Live deploy is the one remaining manual step (env vars + redeploy) because the Vercel CLI is not installed and v4 code must not be served against stale v3 env-var addresses.
+**✅ Checkpoint 7 [DONE]:** Tests green (34), build clean, AI verified, docs updated, merged to master + tagged v4.0 + pushed, and **live on https://float-arc.vercel.app (v4, public)**.
+
+---
+
+## Post-ship: legacy fund recovery
+
+Audit of pre-v4 pools (see `contracts/scripts/audit-old.js`, `audit-old-invoices.js`):
+
+- **v3 pool `0x1b643E7C7B640fc17F64D652fb4B3490c60D9819`** holds **75.25 USDC**: LP `investorAssets`
+  72.4 (80 fLP, owned by others — deployer holds 0), buyer collateral 1.8, seller stake 0.75,
+  insurance 0.3. Pools `0xFc8b` (v2) and `0xBFd4` (v3.x) are empty.
+- The investor page's Legacy Pool banner pointed only at the empty `0xBFd4`. **Fixed** to scan all
+  pre-v4 pools, so any LP can connect and withdraw their stranded position (the 72.4 USDC is liquid now).
+- Collateral 1.8 + stake 0.75 are locked in old-core (`0xc8934…`) invoice #2 (FUNDED): buyer is the
+  deployer, seller `0xcafd…`. They release on `payInvoice(2)` (if the debt is real) or `markDefault(2)`
+  after 2026-07-20 (slashed to LPs). Normal protocol resolution, not an unrecoverable lock.
 
 ---
 
