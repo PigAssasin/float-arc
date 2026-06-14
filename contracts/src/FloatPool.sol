@@ -15,6 +15,10 @@ contract FloatPool is ReentrancyGuard, Ownable {
     IERC20  public immutable usdc;
     address public authorizedCore;
 
+    // Insurance reserve is capped at this share of investor assets; the rest of any
+    // incoming fee accrues to LP yield instead of locking capital forever.
+    uint256 public constant INSURANCE_TARGET_BPS = 1000; // 10%
+
     uint256 public totalShares;
     uint256 public totalLockedCollateral; // buyer collateral in custody
     uint256 public sellerStakeTotal;      // seller security deposits in custody
@@ -172,11 +176,16 @@ contract FloatPool is ReentrancyGuard, Ownable {
 
     // ─── Core-only: insurance reserve ────────────────────────────────────────
 
-    /// Add to insurance reserve from payment fees. USDC already in pool.
+    /// Add to insurance reserve from payment fees, capped at INSURANCE_TARGET_BPS of
+    /// investor assets. Any excess fee stays in the pool as LP yield (not reserved).
     function fundInsurance(uint256 amount) external onlyCore {
         if (amount == 0) return;
-        insuranceReserve += amount;
-        emit InsuranceFunded(amount);
+        uint256 target = (investorAssets() * INSURANCE_TARGET_BPS) / 10_000;
+        if (insuranceReserve >= target) return; // already at cap; fee becomes LP yield
+        uint256 headroom = target - insuranceReserve;
+        uint256 add = amount < headroom ? amount : headroom;
+        insuranceReserve += add;
+        emit InsuranceFunded(add);
     }
 
     /// On default: draw from insurance reserve to cover the LP shortfall.

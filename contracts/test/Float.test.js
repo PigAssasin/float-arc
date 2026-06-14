@@ -73,9 +73,9 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const inv = await core.getInvoice(0);
       expect(inv.status).to.equal(Status.PENDING_APPROVAL);
       expect(await usdc.balanceOf(seller.address)).to.equal(sellerBefore); // nothing disbursed
-      expect(inv.advance).to.equal(USDC(800)); // new seller = 80%
-      expect(inv.stake).to.equal(USDC(80));    // new seller = 8%
-      expect(inv.collateral).to.equal(USDC(200)); // new buyer = 20%
+      expect(inv.advance).to.equal(USDC(750)); // new (unproven) seller = 75%
+      expect(inv.stake).to.equal(USDC(100));   // new seller = 10%
+      expect(inv.collateral).to.equal(USDC(250)); // cover = 100% - 75% = 25%
       await assertPoolInvariant();
     });
 
@@ -103,11 +103,11 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const sellerBefore = await usdc.balanceOf(seller.address);
       const { id } = await fundInvoice(USDC(1000));
 
-      // net = advance(800) - stake(80) = 720
-      expect(await usdc.balanceOf(seller.address) - sellerBefore).to.equal(USDC(720));
+      // net = advance(750) - stake(100) = 650
+      expect(await usdc.balanceOf(seller.address) - sellerBefore).to.equal(USDC(650));
       expect((await core.getInvoice(id)).status).to.equal(Status.FUNDED);
-      expect(await pool.totalLockedCollateral()).to.equal(USDC(200));
-      expect(await pool.sellerStakeTotal()).to.equal(USDC(80));
+      expect(await pool.totalLockedCollateral()).to.equal(USDC(250));
+      expect(await pool.sellerStakeTotal()).to.equal(USDC(100));
       await assertPoolInvariant();
     });
 
@@ -123,8 +123,8 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const inv = await core.getInvoice(id);
       expect(inv.status).to.equal(Status.PAID);
 
-      // seller: +720 net advance, +80 stake back = +800 total
-      expect(await usdc.balanceOf(seller.address) - sellerBefore).to.equal(USDC(800));
+      // seller: +650 net advance, +100 stake back = +750 total
+      expect(await usdc.balanceOf(seller.address) - sellerBefore).to.equal(USDC(750));
       // buyer: paid 1000 face, collateral round-trips → net -1000
       expect(buyerBefore - await usdc.balanceOf(buyer.address)).to.equal(USDC(1000));
       // insurance: 1% of face
@@ -222,20 +222,18 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const { id, due } = await fundInvoice(USDC(1000));
       await time.increaseTo(due + 7 * DAY + 1);
       await core.connect(stranger).markDefault(id);
-      // recovered collateral(200)+stake(80); loss = 800 - 280 = 520
-      expect(assetsBefore - await pool.investorAssets()).to.equal(USDC(520));
+      // recovered collateral(250)+stake(100); loss = 750 - 350 = 400
+      expect(assetsBefore - await pool.investorAssets()).to.equal(USDC(400));
       await assertPoolInvariant();
     });
   });
 
   // ─── Tiers (CURRENT v3 behavior — documents bug #3, updated in Phase 2) ──────
 
-  describe("Credit tiers (v3 current behavior)", function () {
-    it("new seller: score 50, advance 8000 bps, stake 800 bps", async function () {
-      // NOTE: Phase 2 changes the expected advance to 7500 / stake 1000 for unproven sellers.
-      expect(await core.sellerScore(seller.address)).to.equal(50);
-      expect(await core.sellerAdvanceBps(seller.address)).to.equal(8000);
-      expect(await core.sellerStakeBps(seller.address)).to.equal(800);
+  describe("Credit tiers", function () {
+    it("unproven seller starts in New tier: advance 7500 bps, stake 1000 bps", async function () {
+      expect(await core.sellerAdvanceBps(seller.address)).to.equal(7500);
+      expect(await core.sellerStakeBps(seller.address)).to.equal(1000);
     });
 
     it("perfect history caps advance at 8800 bps (Excellent)", async function () {
@@ -292,17 +290,18 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const before = await usdc.balanceOf(investor.address);
       await pool.connect(investor).withdraw(myShares);
       const earned = (await usdc.balanceOf(investor.address)) - before;
-      // pool advanced 800, got back 1000 face, minus 10 to insurance reserve
-      // investor assets = 10_000 + (1000 - 800) - 10 = 10_190
-      expect(earned).to.equal(USDC(10_190));
+      // pool advanced 750, got back 1000 face, minus 10 to insurance reserve
+      // investor assets = 10_000 + (1000 - 750) - 10 = 10_240
+      expect(earned).to.equal(USDC(10_240));
     });
   });
 
   // ─── SECURITY: self-dealing exploit (neutralized/bounded in Phase 2) ─────────
 
   describe("SECURITY — self-dealing", function () {
-    it("self-dealing default drains ~52% of face from LPs (PRE-FIX baseline)", async function () {
-      // Attacker controls both `seller` (A) and `buyer` (B).
+    it("self-dealing default still extracts value when no caps are set (testnet default)", async function () {
+      // Attacker controls both `seller` (A) and `buyer` (B). With caps off (testnet
+      // default) the structural loss persists — bounded only by the exposure cap below.
       await pool.connect(investor).deposit(USDC(10_000));
       const lpBefore = await pool.investorAssets(); // 10_000
 
@@ -316,10 +315,134 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const combinedAfter =
         (await usdc.balanceOf(seller.address)) + (await usdc.balanceOf(buyer.address));
 
-      // Attacker net gain == LP net loss == advance - collateral - stake = 520
-      expect(combinedAfter - combinedBefore).to.equal(USDC(520));
-      expect(lpBefore - await pool.investorAssets()).to.equal(USDC(520));
+      // Attacker net gain == LP net loss == advance - collateral - stake = 400
+      expect(combinedAfter - combinedBefore).to.equal(USDC(400));
+      expect(lpBefore - await pool.investorAssets()).to.equal(USDC(400));
       await assertPoolInvariant();
+    });
+
+    it("exposure cap bounds the blast radius of a single seller", async function () {
+      await pool.connect(investor).deposit(USDC(100_000));
+      // Cap a seller at 1000 USDC of outstanding advance.
+      await core.connect(owner).setMaxOutstandingPerSeller(USDC(1000));
+
+      // First invoice (advance 750) funds fine.
+      await fundInvoice(USDC(1000));
+      // Second concurrent invoice would push outstanding to 1500 > 1000 → blocked at lock.
+      const due = (await time.latest()) + 30 * DAY;
+      await core.connect(seller).createInvoice(buyer.address, USDC(1000), due);
+      const id2 = (await core.invoiceCount()) - 1n;
+      await core.connect(buyer).approveInvoice(id2);
+      await expect(core.connect(buyer).lockCollateral(id2))
+        .to.be.revertedWithCustomError(core, "ExposureCapExceeded");
+
+      // Outstanding frees up after repayment, then a new invoice can fund again.
+      await core.connect(buyer).payInvoice(0);
+      expect(await core.outstandingAdvance(seller.address)).to.equal(0);
+    });
+  });
+
+  // ─── Anti-Sybil config (OFF by default; opt-in for production) ───────────────
+
+  describe("Verification gate (off by default)", function () {
+    it("is disabled by default — unverified parties transact freely", async function () {
+      expect(await core.verificationRequired()).to.equal(false);
+      await pool.connect(investor).deposit(USDC(10_000));
+      await expect(fundInvoice(USDC(1000))).to.not.be.reverted;
+    });
+
+    it("when enabled, unverified seller/buyer are blocked until verified", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      await core.connect(owner).setVerificationRequired(true);
+
+      const due = (await time.latest()) + 30 * DAY;
+      await expect(core.connect(seller).createInvoice(buyer.address, USDC(1000), due))
+        .to.be.revertedWithCustomError(core, "NotVerified");
+
+      await core.connect(owner).setVerified(seller.address, true);
+      await core.connect(owner).setVerified(buyer.address, true);
+      await expect(core.connect(seller).createInvoice(buyer.address, USDC(1000), due))
+        .to.not.be.reverted;
+    });
+
+    it("setVerified by a random account reverts NotAttestor", async function () {
+      await expect(core.connect(stranger).setVerified(stranger.address, true))
+        .to.be.revertedWithCustomError(core, "NotAttestor");
+    });
+  });
+
+  // ─── Misc fixes ──────────────────────────────────────────────────────────────
+
+  describe("Misc fixes", function () {
+    it("insurance accrues 1% of face and stays bounded by 10% of investor assets", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const { id, due } = await fundInvoice(USDC(1000));
+      await time.increaseTo(due);
+      await core.connect(buyer).payInvoice(id);
+
+      expect(await pool.insuranceReserve()).to.equal(USDC(10)); // exactly 1% of face, under cap
+      const assets = await pool.investorAssets();
+      expect(await pool.insuranceReserve()).to.be.lessThanOrEqual((assets * 1000n) / 10000n);
+      await assertPoolInvariant();
+    });
+
+    it("insurance does not grow once it exceeds the 10% cap (no unbounded lock)", async function () {
+      await pool.connect(investor).deposit(USDC(100_000));
+      // Accrue reserve = 1% of 10_000 = 100.
+      {
+        const { id, due } = await fundInvoice(USDC(10_000));
+        await time.increaseTo(due);
+        await core.connect(buyer).payInvoice(id);
+      }
+      expect(await pool.insuranceReserve()).to.equal(USDC(100));
+
+      // Drain most LP capital so the 100 reserve is now well above 10% of remaining assets.
+      const myShares = await pool.shares(investor.address);
+      await pool.connect(investor).withdraw((myShares * 999n) / 1000n);
+      expect(await pool.investorAssets()).to.be.lessThan(USDC(1000)); // target < 100
+
+      // A further paid invoice must NOT grow the reserve (clamp branch).
+      const { id, due } = await fundInvoice(USDC(20));
+      await time.increaseTo(due);
+      await core.connect(buyer).payInvoice(id);
+      expect(await pool.insuranceReserve()).to.equal(USDC(100)); // unchanged → fee became LP yield
+      await assertPoolInvariant();
+    });
+
+    it("re-checks the 20% size cap at lockCollateral if the pool shrank", async function () {
+      // Two investors. Create an invoice while liquidity is high, then drain liquidity
+      // so the advance now exceeds 20% of what remains, and assert lock reverts.
+      await pool.connect(investor).deposit(USDC(10_000));
+      const due = (await time.latest()) + 30 * DAY;
+      await core.connect(seller).createInvoice(buyer.address, USDC(1000), due); // advance 750
+      const id = (await core.invoiceCount()) - 1n;
+      await core.connect(buyer).approveInvoice(id);
+
+      // Investor withdraws most liquidity → 750 now > 20% of remaining.
+      const myShares = await pool.shares(investor.address);
+      await pool.connect(investor).withdraw((myShares * 8n) / 10n); // leave ~2000
+      await expect(core.connect(buyer).lockCollateral(id))
+        .to.be.revertedWithCustomError(core, "InvoiceTooLarge");
+    });
+
+    it("collateral timeout clock starts at approval, not creation", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const due = (await time.latest()) + 60 * DAY;
+      await core.connect(seller).createInvoice(buyer.address, USDC(1000), due);
+      const id = (await core.invoiceCount()) - 1n;
+
+      // Approve late (after the old createdAt-based window would have nearly elapsed).
+      await time.increase(60 * 3600); // 60h after creation
+      await core.connect(buyer).approveInvoice(id);
+
+      // Immediately after approval the collateral window is NOT yet cancelable.
+      await expect(core.connect(stranger).cancelCollateralTimeout(id))
+        .to.be.revertedWithCustomError(core, "CollateralTimeoutNotReached");
+
+      // After the full COLLATERAL_TIMEOUT from approval, it is cancelable.
+      await time.increase(48 * 3600 + 1);
+      await expect(core.connect(stranger).cancelCollateralTimeout(id)).to.not.be.reverted;
+      expect((await core.getInvoice(id)).status).to.equal(Status.CANCELLED);
     });
   });
 });

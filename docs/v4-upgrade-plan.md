@@ -180,7 +180,7 @@ All edits in [FloatCore.sol](../contracts/src/FloatCore.sol) and [FloatPool.sol]
 ### 2.7 Fix #6 — markDefault keeper bounty (FloatCore) — OPTIONAL
 - [ ] Add `KEEPER_BOUNTY_BPS` (e.g. 50 = 0.5%); on `markDefault`, transfer a small slice of slashed collateral to `msg.sender`. Skip if time-constrained.
 
-**✅ Checkpoint 2:** All Phase 1 tests updated to v4 expectations are green. New tests for 2.1–2.6 are green. The exploit test now demonstrates the attack is bounded/blocked. Run `slither .` (or note it as a follow-up if Slither unavailable).
+**✅ Checkpoint 2 [DONE]:** 28 passing. Tier fix (new seller 7500/1000), insurance cap (accrual + clamp branch), anti-Sybil (verification gate OFF by default + exposure cap), lock-time size-cap re-check, and approval-based collateral timeout all tested. Exploit baseline updated (now 400/1000) and exposure-cap test bounds it. Inflation guard (#5) folded into Phase 3 ERC20 deposit. Keeper bounty (#6) skipped as optional. Slither: follow-up.
 
 ---
 

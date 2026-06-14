@@ -31,6 +31,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
         uint256 stake;       // seller security deposit withheld from disbursement
         uint256 dueDate;     // unix timestamp for payment
         uint256 createdAt;   // for timeout + early repayment calc
+        uint256 approvedAt;  // when buyer approved (collateral timeout clock)
         InvoiceStatus status;
     }
 
@@ -60,6 +61,15 @@ contract FloatCore is ReentrancyGuard, Ownable {
     mapping(address => uint256) public buyerPaidCount;
     mapping(address => uint256) public buyerTotalCount;
 
+    // ─── Anti-Sybil (production hooks; OFF by default on testnet) ────────────────
+    // verificationRequired defaults to false and maxOutstandingPerSeller to 0 so the
+    // testnet flow is completely open. An operator opts in for production (pluggable to EAS).
+    address public attestor;
+    bool    public verificationRequired;                  // false → no verification gate
+    mapping(address => bool)    public verified;
+    mapping(address => uint256) public outstandingAdvance; // seller => sum of un-repaid advances
+    uint256 public maxOutstandingPerSeller;               // 0 = unlimited
+
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     error ZeroAmount();
@@ -73,6 +83,9 @@ contract FloatCore is ReentrancyGuard, Ownable {
     error CollateralTimeoutNotReached(uint256 cancelableAt, uint256 current);
     error GracePeriodNotExpired(uint256 defaultableAfter, uint256 current);
     error SelfInvoice();
+    error NotAttestor(address caller);
+    error NotVerified(address who);
+    error ExposureCapExceeded(uint256 attempted, uint256 cap);
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
@@ -97,12 +110,40 @@ contract FloatCore is ReentrancyGuard, Ownable {
     event InvoiceCancelled(uint256 indexed id);
     event SellerScoreUpdated(address indexed seller, uint256 newScore);
     event BuyerScoreUpdated(address indexed buyer, uint256 newScore);
+    event AttestorSet(address indexed attestor);
+    event VerificationRequiredSet(bool required);
+    event VerifiedSet(address indexed who, bool verified);
+    event MaxOutstandingPerSellerSet(uint256 cap);
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
     constructor(address _usdc, address _pool) Ownable(msg.sender) {
         usdc = IERC20(_usdc);
         pool = FloatPool(_pool);
+    }
+
+    // ─── Admin: anti-Sybil config (no-op on testnet defaults) ───────────────────
+
+    function setAttestor(address a) external onlyOwner {
+        attestor = a;
+        emit AttestorSet(a);
+    }
+
+    function setVerificationRequired(bool required) external onlyOwner {
+        verificationRequired = required;
+        emit VerificationRequiredSet(required);
+    }
+
+    function setMaxOutstandingPerSeller(uint256 cap) external onlyOwner {
+        maxOutstandingPerSeller = cap;
+        emit MaxOutstandingPerSellerSet(cap);
+    }
+
+    /// Mark an address verified. Callable by the owner or the configured attestor.
+    function setVerified(address who, bool isVerified) external {
+        if (msg.sender != owner() && msg.sender != attestor) revert NotAttestor(msg.sender);
+        verified[who] = isVerified;
+        emit VerifiedSet(who, isVerified);
     }
 
     // ─── Seller: create invoice ───────────────────────────────────────────────
@@ -117,6 +158,13 @@ contract FloatCore is ReentrancyGuard, Ownable {
         if (amount == 0) revert ZeroAmount();
         if (dueTimestamp <= block.timestamp) revert InvalidDueDate();
         if (buyer == msg.sender) revert SelfInvoice();
+
+        // Verification gate — disabled by default (testnet). When enabled, both parties
+        // must be verified. Pluggable to an external attestation source for production.
+        if (verificationRequired) {
+            if (!verified[msg.sender]) revert NotVerified(msg.sender);
+            if (!verified[buyer])      revert NotVerified(buyer);
+        }
 
         uint256 advanceBps    = sellerAdvanceBps(msg.sender);
         uint256 collateralBps = buyerCollateralBps(advanceBps, buyer);
@@ -145,6 +193,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
             stake:      stake,
             dueDate:    dueTimestamp,
             createdAt:  block.timestamp,
+            approvedAt: 0,
             status:     InvoiceStatus.PENDING_APPROVAL
         });
 
@@ -163,6 +212,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
         if (msg.sender != inv.buyer) revert NotBuyer(msg.sender, inv.buyer);
 
         inv.status = InvoiceStatus.PENDING_COLLATERAL;
+        inv.approvedAt = block.timestamp;
         emit InvoiceApproved(id, msg.sender);
     }
 
@@ -196,6 +246,16 @@ contract FloatCore is ReentrancyGuard, Ownable {
         uint256 liquidity = pool.availableLiquidity();
         if (liquidity < inv.advance)
             revert InsufficientPoolLiquidity(inv.advance, liquidity);
+
+        // Re-check single-invoice size cap (pool may have shrunk since creation)
+        if (liquidity > 0 && inv.advance > (liquidity * MAX_INVOICE_BPS) / 10_000)
+            revert InvoiceTooLarge(inv.advance, (liquidity * MAX_INVOICE_BPS) / 10_000);
+
+        // Per-seller outstanding exposure cap (0 = unlimited)
+        uint256 newOutstanding = outstandingAdvance[inv.seller] + inv.advance;
+        if (maxOutstandingPerSeller != 0 && newOutstanding > maxOutstandingPerSeller)
+            revert ExposureCapExceeded(newOutstanding, maxOutstandingPerSeller);
+        outstandingAdvance[inv.seller] = newOutstanding;
 
         inv.status = InvoiceStatus.FUNDED;
         uint256 netDisbursed = inv.advance - inv.stake;
@@ -236,6 +296,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
         sellerPaidCount[inv.seller]++;
         buyerPaidCount[inv.buyer]++;
         buyerTotalCount[inv.buyer]++;
+        outstandingAdvance[inv.seller] -= inv.advance;
 
         emit InvoicePaid(id, msg.sender, amountDue, discount);
         emit CollateralReturned(id, msg.sender, inv.collateral);
@@ -274,6 +335,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
 
         inv.status = InvoiceStatus.DEFAULTED;
         buyerTotalCount[inv.buyer]++;
+        outstandingAdvance[inv.seller] -= inv.advance;
         // sellerPaidCount NOT incremented — score drops
 
         emit InvoiceDefaulted(id, inv.seller, inv.collateral, inv.stake);
@@ -315,7 +377,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
         if (inv.status != InvoiceStatus.PENDING_COLLATERAL)
             revert WrongStatus(inv.status, InvoiceStatus.PENDING_COLLATERAL);
 
-        uint256 cancelableAt = inv.createdAt + APPROVAL_TIMEOUT + COLLATERAL_TIMEOUT;
+        uint256 cancelableAt = inv.approvedAt + COLLATERAL_TIMEOUT;
         if (block.timestamp < cancelableAt)
             revert CollateralTimeoutNotReached(cancelableAt, block.timestamp);
 
@@ -337,21 +399,24 @@ contract FloatCore is ReentrancyGuard, Ownable {
     }
 
     /// Seller advance rate in bps. Tiers: 75/80/84/88%.
+    /// Unproven sellers (no history) start in the conservative New tier, not Fair.
     function sellerAdvanceBps(address seller) public view returns (uint256) {
+        if (sellerTotalCount[seller] == 0) return 7500; // New (unproven): 75%
         uint256 s = sellerScore(seller);
         if (s >= 86) return 8800; // Excellent: 88%
         if (s >= 71) return 8400; // Good:      84%
         if (s >= 41) return 8000; // Fair:      80%
-        return 7500;              // New:       75%
+        return 7500;              // New (penalty): 75%
     }
 
     /// Seller stake rate in bps. Inversely proportional to tier trust.
     function sellerStakeBps(address seller) public view returns (uint256) {
+        if (sellerTotalCount[seller] == 0) return 1000; // New (unproven): 10%
         uint256 s = sellerScore(seller);
         if (s >= 86) return 500;  // Excellent: 5%
         if (s >= 71) return 600;  // Good:      6%
         if (s >= 41) return 800;  // Fair:      8%
-        return 1000;              // New:       10%
+        return 1000;              // New (penalty): 10%
     }
 
     /// Buyer collateral rate in bps.
