@@ -15,6 +15,8 @@ export interface OnChainInvoice {
   stake: bigint;
   dueDate: bigint;
   createdAt: bigint;
+  approvedAt: bigint;
+  amountPaid: bigint;
   status: number;
 }
 
@@ -53,6 +55,8 @@ export function useMyInvoices(address: `0x${string}` | undefined, role: "seller"
       stake: bigint;
       dueDate: bigint;
       createdAt: bigint;
+      approvedAt: bigint;
+      amountPaid: bigint;
       status: number;
     };
     const matchAddress = role === "seller" ? inv.seller : inv.buyer;

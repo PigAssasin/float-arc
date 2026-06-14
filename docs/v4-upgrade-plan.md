@@ -265,7 +265,7 @@ Buyer can pay a funded invoice in multiple tranches before the due date.
 ### 5.6 Frontend: tokenized position UI (investor page) — light
 - [ ] Show `fLP` balance and `shareValue`; optional "Transfer LP" action (`transfer(to, amount)` on FloatPool).
 
-**✅ Checkpoint 5:** App runs against v4 on Arc Testnet. Create → approve → lock → partial pay → settle works end to end in the browser. Investor sees fLP balance. `npx tsc --noEmit` clean, `npm run build` succeeds.
+**✅ Checkpoint 5 [DONE]:** v4 deployed to Arc Testnet — Pool `0x98bF7f0572f542fBD6365531D39C657779839375`, Core `0x336Be2095425ac463c6E121461B68401c3209c85`; pool seeded ~84 USDC. ABIs regenerated, addresses updated in contracts.ts + .env.local + CLAUDE.md. Frontend wired: `amountPaid`/`approvedAt` decode, seller tier-from-rate + on-chain size cap + reworded tooltip, buyer installment UI (`payPartial` + progress), investor fLP transfer. `npx tsc --noEmit` clean. (`npm run build` in Phase 7.)
 
 ---
 

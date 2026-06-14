@@ -41,6 +41,8 @@ export default function InvestorPage() {
   const { isConnected, address } = useAccount();
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [transferTo, setTransferTo] = useState("");
+  const [transferAmount, setTransferAmount] = useState("");
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
 
   // ── Contract reads ──────────────────────────────────────────────────────────
@@ -118,10 +120,25 @@ export default function InvestorPage() {
   const { writeContract: approveWrite, data: approveTxHash, isPending: approvePending, error: approveError, reset: resetApprove } = useWriteContract();
   const { writeContract: depositWrite, data: depositTxHash, isPending: depositPending, error: depositError, reset: resetDeposit } = useWriteContract();
   const { writeContract: withdrawWrite, data: withdrawTxHash, isPending: withdrawPending, error: withdrawError, reset: resetWithdraw } = useWriteContract();
+  const { writeContract: transferWrite, data: transferTxHash, isPending: transferPending, error: transferError, reset: resetTransfer } = useWriteContract();
 
   const { isLoading: approveConfirming, isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash, confirmations: 1 });
   const { isLoading: depositConfirming, isSuccess: depositConfirmed } = useWaitForTransactionReceipt({ hash: depositTxHash, confirmations: 1 });
   const { isLoading: withdrawConfirming, isSuccess: withdrawConfirmed } = useWaitForTransactionReceipt({ hash: withdrawTxHash, confirmations: 1 });
+  const { isLoading: transferConfirming, isSuccess: transferConfirmed } = useWaitForTransactionReceipt({ hash: transferTxHash, confirmations: 1 });
+
+  const transferAmtValid = !!transferTo && /^0x[a-fA-F0-9]{40}$/.test(transferTo)
+    && transferAmount !== "" && parseFloat(transferAmount) > 0 && parseFloat(transferAmount) <= myShares;
+  const handleTransfer = () => {
+    resetTransfer();
+    transferWrite({
+      address: CONTRACTS.FLOAT_POOL,
+      abi: FloatPoolABI,
+      functionName: "transfer",
+      args: [transferTo as `0x${string}`, parseUnits(transferAmount, USDC_DECIMALS)],
+      chainId: arcTestnet.id,
+    });
+  };
 
   const handleApprove = () => {
     resetApprove();
@@ -195,7 +212,7 @@ export default function InvestorPage() {
         {[
           { label: "Pool TVL",    value: tvl !== null ? `$${tvl.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—", sub: "USDC in pool",     icon: <BarChart3 className="w-4 h-4" />,  color: "#DEDBC8" },
           { label: "My Position", value: myShares > 0 ? `$${myPositionUsdc.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—",               sub: "current value",  icon: <Wallet className="w-4 h-4" />,     color: "#DEDBC8" },
-          { label: "My Shares",   value: myShares > 0 ? myShares.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "0",                             sub: "pool shares",    icon: <TrendingUp className="w-4 h-4" />, color: "#22c55e" },
+          { label: "My fLP",      value: myShares > 0 ? myShares.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "0",                             sub: "transferable LP token", icon: <TrendingUp className="w-4 h-4" />, color: "#22c55e" },
           { label: "Share Value", value: rawShareValue ? `$${shareValueRatio.toFixed(4)}` : "—",                                                            sub: "per share",      icon: <Activity className="w-4 h-4" />,   color: "#FFA500" },
         ].map(({ label, value, sub, icon, color }, i) => (
           <motion.div
@@ -435,6 +452,56 @@ export default function InvestorPage() {
           </AnimatePresence>
         </GlassCard>
       </motion.div>
+
+      {/* Transfer fLP position (tokenized) */}
+      {myShares > 0 && (
+        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6 }}>
+          <GlassCard className="p-6 flex flex-col gap-4">
+            <div>
+              <p className="text-[#E1E0CC] font-medium mb-1">Transfer fLP</p>
+              <p className="text-gray-500 text-xs">
+                Your position is a transferable ERC-20 token. Move it to another wallet or a secondary market without withdrawing.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                placeholder="Recipient 0x..."
+                value={transferTo}
+                onChange={(e) => setTransferTo(e.target.value)}
+                className="flex-1 bg-black/40 text-[#E1E0CC] rounded-xl border border-white/10 px-4 py-3 text-sm focus:border-primary/40 outline-none transition-colors placeholder:text-gray-700 font-mono"
+              />
+              <input
+                type="number"
+                placeholder={`fLP amount (max ${myShares.toFixed(4)})`}
+                value={transferAmount}
+                onChange={(e) => setTransferAmount(e.target.value)}
+                className="sm:w-56 bg-black/40 text-[#E1E0CC] rounded-xl border border-white/10 px-4 py-3 text-sm focus:border-primary/40 outline-none transition-colors placeholder:text-gray-700 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <button
+                type="button"
+                onClick={handleTransfer}
+                disabled={!transferAmtValid || transferPending || transferConfirming}
+                className="flex items-center justify-center gap-1.5 px-5 py-3 rounded-full text-sm font-medium border border-white/15 text-primary bg-white/[0.06] hover:bg-white/[0.1] disabled:opacity-30 transition-all whitespace-nowrap"
+              >
+                {transferPending || transferConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {transferConfirming ? "Confirming…" : "Transfer"}
+              </button>
+            </div>
+            <TxError error={transferError as Error | null} />
+            <AnimatePresence>
+              {transferConfirmed && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[#22c55e] text-sm">
+                  <CheckCircle2 className="w-4 h-4" /> fLP transferred
+                  {transferTxHash && (
+                    <a href={`https://testnet.arcscan.app/tx/${transferTxHash}`} target="_blank" rel="noopener noreferrer" className="text-xs underline opacity-60">View tx</a>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Legacy Pool Migration */}
       <LegacyPoolBanner address={address} />

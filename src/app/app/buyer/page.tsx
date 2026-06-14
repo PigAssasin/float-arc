@@ -1,7 +1,8 @@
 "use client";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { formatUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { CONTRACTS, FloatCoreABI, ERC20ABI, USDC_DECIMALS, InvoiceStatus } from "@/lib/contracts";
 import { arcTestnet } from "@/lib/wagmi-config";
@@ -285,13 +286,17 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
     query: { enabled: !!address },
   });
 
+  const [partialStr, setPartialStr] = useState("");
+
   const { writeContract: approveUSDC, data: approveTxHash, isPending: approvePending, error: approveError } = useWriteContract();
   const { writeContract: payWrite, data: payTxHash, isPending: payPending, error: payError } = useWriteContract();
+  const { writeContract: partialWrite, data: partialTxHash, isPending: partialPending, error: partialError } = useWriteContract();
   const { writeContract: defaultWrite, data: defaultTxHash, isPending: defaultPending, error: defaultError } = useWriteContract();
   const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash, confirmations: 1,
     onSuccess: () => { refetchAllowance(); }
   } as Parameters<typeof useWaitForTransactionReceipt>[0]);
   const { isSuccess: paid } = useWaitForTransactionReceipt({ hash: payTxHash, confirmations: 1 });
+  const { isSuccess: partialPaid } = useWaitForTransactionReceipt({ hash: partialTxHash, confirmations: 1 });
   const { isSuccess: markedDefault } = useWaitForTransactionReceipt({ hash: defaultTxHash, confirmations: 1 });
 
   const amountDue = earlyRepay ? earlyRepay[0] : inv.amount;
@@ -304,7 +309,18 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
   const pastGrace = daysLeft <= -7; // past dueDate + 7-day grace period
   const hasDiscount = discount > BigInt(0);
 
+  // Installments: how much of the face value has already been paid
+  const amountPaidSoFar = inv.amountPaid;
+  const remaining = inv.amount - amountPaidSoFar;
+  const paidPct = inv.amount > BigInt(0) ? Number((amountPaidSoFar * BigInt(10000)) / inv.amount) / 100 : 0;
+  const hasPartial = amountPaidSoFar > BigInt(0);
+  const amountPaidFmt = Number(formatUnits(amountPaidSoFar, USDC_DECIMALS)).toLocaleString();
+  const remainingFmt = Number(formatUnits(remaining, USDC_DECIMALS)).toLocaleString();
+
+  const partialAmount = partialStr && Number(partialStr) > 0 ? parseUnits(partialStr, USDC_DECIMALS) : BigInt(0);
+  const partialValid = partialAmount > BigInt(0) && partialAmount <= remaining;
   const hasAllowance = (allowance !== undefined && allowance >= amountDue) || approveConfirmed;
+  const hasPartialAllowance = allowance !== undefined && partialAmount > BigInt(0) && allowance >= partialAmount;
 
   if (paid) {
     return (
@@ -402,7 +418,7 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
             }}
           >
             {payPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            {hasAllowance ? `Pay $${amountDueFmt}` : "Step 2: Pay"}
+            {hasAllowance ? (hasPartial ? `Pay remaining $${amountDueFmt}` : `Pay $${amountDueFmt}`) : "Step 2: Pay"}
           </button>
           {pastGrace && (
             <button
@@ -416,7 +432,53 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
           )}
         </div>
       </div>
-      <TxError error={(approveError || payError || defaultError) as Error | null} />
+
+      {/* Installments / partial repayment */}
+      {!pastGrace && (
+        <div className="mt-4 pt-4 border-t border-white/[0.06]">
+          {hasPartial && (
+            <div className="mb-3">
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-gray-500">Paid ${amountPaidFmt} of face value</span>
+                <span className="text-[#DEDBC8]">{paidPct}% · ${remainingFmt} left</span>
+              </div>
+              <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
+                <div className="h-full bg-[#DEDBC8] transition-all duration-500" style={{ width: `${paidPct}%` }} />
+              </div>
+            </div>
+          )}
+          <p className="text-gray-500 text-[11px] mb-2">Or pay in installments (no early-payment discount on partials):</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="number"
+              value={partialStr}
+              onChange={(e) => setPartialStr(e.target.value)}
+              placeholder={`Amount (max $${remainingFmt})`}
+              className="flex-1 bg-black/40 text-[#E1E0CC] rounded-xl border border-white/10 px-4 py-2 text-sm outline-none focus:border-primary/40 placeholder:text-gray-700 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            {!hasPartialAllowance ? (
+              <button
+                onClick={() => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, partialAmount], chainId: arcTestnet.id })}
+                disabled={!partialValid || approvePending}
+                className="px-4 py-2 rounded-full text-sm font-medium border border-white/15 text-gray-300 bg-white/[0.04] hover:bg-white/[0.08] disabled:opacity-40 transition-all whitespace-nowrap"
+              >
+                {approvePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Approve"}
+              </button>
+            ) : (
+              <button
+                onClick={() => partialWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "payPartial", args: [inv.id, partialAmount], chainId: arcTestnet.id })}
+                disabled={!partialValid || partialPending}
+                className="px-4 py-2 rounded-full text-sm font-medium border border-[#DEDBC8]/25 text-[#DEDBC8] bg-[#DEDBC8]/[0.08] hover:bg-[#DEDBC8]/[0.15] disabled:opacity-40 transition-all whitespace-nowrap"
+              >
+                {partialPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Pay installment"}
+              </button>
+            )}
+          </div>
+          {partialPaid && <p className="text-[#22c55e] text-[11px] mt-2">Installment received. Refreshing balance…</p>}
+        </div>
+      )}
+
+      <TxError error={(approveError || payError || partialError || defaultError) as Error | null} />
     </div>
   );
 }

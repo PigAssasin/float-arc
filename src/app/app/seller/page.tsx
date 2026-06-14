@@ -18,10 +18,12 @@ const TIER_COLORS: Record<string, string> = {
   Excellent: "#22c55e",
 };
 
-function scoreToTier(score: number): string {
-  if (score >= 86) return "Excellent";
-  if (score >= 71) return "Good";
-  if (score >= 41) return "Fair";
+// Tier is derived from the on-chain advance rate (bps), not the raw score: an
+// unproven seller (no history) gets the conservative New tier even though score reads 50.
+function rateToTier(rateBps: number): string {
+  if (rateBps >= 8800) return "Excellent";
+  if (rateBps >= 8400) return "Good";
+  if (rateBps >= 8000) return "Fair";
   return "New";
 }
 
@@ -159,13 +161,20 @@ export default function SellerPage() {
     query: { enabled: !!CONTRACTS.FLOAT_POOL },
   });
 
+  const { data: rawMaxInvoiceBps } = useReadContract({
+    address: CONTRACTS.FLOAT_CORE,
+    abi: FloatCoreABI,
+    functionName: "MAX_INVOICE_BPS",
+    query: { enabled: !!CONTRACTS.FLOAT_CORE },
+  });
+
   // ── Derived values ──────────────────────────────────────────────────────────
 
   const score = rawScore !== undefined ? Number(rawScore) : 50;
   const rateBps = rawRate !== undefined ? Number(rawRate) : 7500;
   const advanceRate = rateBps / 100; // e.g. 7500 → 75
   const fee = 100 - advanceRate;
-  const tier = scoreToTier(score);
+  const tier = rateToTier(rateBps);
   const tierColor = TIER_COLORS[tier] ?? "#DEDBC8";
 
   const liquidity = rawLiquidity ? Number(rawLiquidity) / 1e6 : null;
@@ -174,8 +183,8 @@ export default function SellerPage() {
     ? Math.round((1 - liquidity / totalAssets) * 100)
     : null;
 
-  // Stake rate mirrors sellerStakeBps() in FloatCore.sol
-  const stakeRate = score >= 86 ? 5 : score >= 71 ? 6 : score >= 41 ? 8 : 10;
+  // Stake rate mirrors sellerStakeBps() in FloatCore.sol (derived from tier/rate)
+  const stakeRate = rateBps >= 8800 ? 5 : rateBps >= 8400 ? 6 : rateBps >= 8000 ? 8 : 10;
   const netAdvanceRate = advanceRate - stakeRate; // what seller actually receives upfront
 
   const advancePreview   = amount ? parseFloat(amount) * advanceRate    / 100 : null;
@@ -183,9 +192,10 @@ export default function SellerPage() {
   const netAdvPreview    = amount ? parseFloat(amount) * netAdvanceRate  / 100 : null;
   const feePreview       = amount ? parseFloat(amount) * fee             / 100 : null;
 
-  // Max invoice amount = 20% of available liquidity / advance rate
+  // Max invoice = (size cap % of available liquidity) / advance rate, cap read on-chain
+  const maxInvoiceFrac = rawMaxInvoiceBps !== undefined ? Number(rawMaxInvoiceBps) / 10_000 : 0.2;
   const maxInvoiceAmount = liquidity !== null && advanceRate > 0
-    ? Math.floor((liquidity * 0.2) / (advanceRate / 100) * 100) / 100
+    ? Math.floor((liquidity * maxInvoiceFrac) / (advanceRate / 100) * 100) / 100
     : null;
 
   const amountNum = amount ? parseFloat(amount) : 0;
@@ -351,9 +361,10 @@ export default function SellerPage() {
                     exit={{ opacity: 0, height: 0 }}
                     className="bg-white/[0.03] rounded-xl border border-white/[0.06] px-4 py-3 text-xs text-gray-400 leading-relaxed overflow-hidden"
                   >
-                    Your on-chain credit score is <span style={{ color: tierColor }} className="font-semibold">{score}</span> ({tier}).
-                    You will receive <span className="text-primary font-semibold">{advanceRate}%</span> of the invoice amount after the buyer approves and locks collateral.
-                    The remaining <span className="text-primary font-semibold">{fee.toFixed(0)}%</span> is the float fee held until the buyer pays.
+                    Your tier is <span style={{ color: tierColor }} className="font-semibold">{tier}</span> ({advanceRate}% advance).
+                    When the buyer approves and locks collateral you receive <span className="text-primary font-semibold">{netAdvanceRate}%</span> upfront.
+                    A <span className="text-primary font-semibold">{stakeRate}%</span> stake is held and returned to you when the buyer pays.
+                    The remaining <span className="text-primary font-semibold">{fee.toFixed(0)}%</span> is the float fee.
                   </motion.div>
                 )}
               </AnimatePresence>
