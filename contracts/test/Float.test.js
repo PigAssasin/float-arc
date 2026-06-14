@@ -252,10 +252,22 @@ describe("Float v3 — FloatPool + FloatCore", function () {
   // ─── Pool share math ─────────────────────────────────────────────────────────
 
   describe("Pool shares", function () {
-    it("first deposit mints shares 1:1", async function () {
+    const DEAD = "0x000000000000000000000000000000000000dEaD";
+
+    it("first deposit mints shares 1:1 minus locked dead shares", async function () {
       await pool.connect(investor).deposit(USDC(1000));
-      expect(await pool.shares(investor.address)).to.equal(USDC(1000));
+      const dead = await pool.DEAD_SHARES();
+      expect(await pool.balanceOf(investor.address)).to.equal(USDC(1000) - dead);
+      expect(await pool.totalSupply()).to.equal(USDC(1000));
+      expect(await pool.balanceOf(DEAD)).to.equal(dead);
+      // backward-compatible aliases still work
+      expect(await pool.shares(investor.address)).to.equal(USDC(1000) - dead);
       expect(await pool.totalShares()).to.equal(USDC(1000));
+    });
+
+    it("first deposit below the minimum reverts", async function () {
+      await expect(pool.connect(investor).deposit(USDC(0.5)))
+        .to.be.revertedWithCustomError(pool, "BelowMinFirstDeposit");
     });
 
     it("second deposit after yield gets diluted shares", async function () {
@@ -292,7 +304,40 @@ describe("Float v3 — FloatPool + FloatCore", function () {
       const earned = (await usdc.balanceOf(investor.address)) - before;
       // pool advanced 750, got back 1000 face, minus 10 to insurance reserve
       // investor assets = 10_000 + (1000 - 750) - 10 = 10_240
-      expect(earned).to.equal(USDC(10_240));
+      // (dead shares keep a dust amount permanently locked → closeTo)
+      expect(earned).to.be.closeTo(USDC(10_240), 2000n);
+    });
+
+    it("fLP is a transferable ERC20: recipient can withdraw transferred shares", async function () {
+      expect(await pool.decimals()).to.equal(6);
+      expect(await pool.symbol()).to.equal("fLP");
+
+      await pool.connect(investor).deposit(USDC(10_000));
+      const half = (await pool.balanceOf(investor.address)) / 2n;
+      await pool.connect(investor).transfer(stranger.address, half);
+      expect(await pool.balanceOf(stranger.address)).to.equal(half);
+
+      const before = await usdc.balanceOf(stranger.address);
+      await pool.connect(stranger).withdraw(half);
+      expect(await usdc.balanceOf(stranger.address)).to.be.greaterThan(before);
+      expect(await pool.balanceOf(stranger.address)).to.equal(0);
+    });
+
+    it("dead shares + min deposit neutralize the inflation/donation attack", async function () {
+      // Attacker first-deposits the minimum, then donates a large amount directly.
+      await usdc.mint(stranger.address, USDC(100_000));
+      await usdc.connect(stranger).approve(await pool.getAddress(), ethers.MaxUint256);
+      await pool.connect(stranger).deposit(USDC(1)); // attacker, min first deposit
+      await usdc.connect(stranger).transfer(await pool.getAddress(), USDC(10_000)); // donation
+
+      // Victim deposits a normal amount and must still receive fairly-priced, non-zero shares.
+      await pool.connect(investor).deposit(USDC(10_000));
+      const victimShares = await pool.balanceOf(investor.address);
+      expect(victimShares).to.be.greaterThan(0);
+
+      // Victim's shares are worth ~what they put in (not stolen by the attacker).
+      const value = (victimShares * await pool.shareValue()) / (10n ** 18n);
+      expect(value).to.be.closeTo(USDC(10_000), USDC(50));
     });
   });
 

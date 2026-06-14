@@ -205,7 +205,7 @@ on a secondary market without waiting for pool liquidity.
 - [ ] `totalSupply`/`balanceOf` behave like the old `totalShares`/`shares` in all Phase 1 share tests (port assertions).
 - [ ] Dead shares present after first deposit; donation attack still neutralized.
 
-**✅ Checkpoint 3:** ERC20 share token works end to end; transfer + withdraw-by-recipient test green; all prior pool tests pass against the ERC20 version.
+**✅ Checkpoint 3 [DONE]:** 31 passing. FloatPool is now ERC20 `fLP` (decimals 6); transfer + withdraw-by-recipient tested; dead-shares + min-first-deposit neutralize the donation attack (tested). Backward-compat `shares()`/`totalShares()` aliases retained so the frontend needs minimal change.
 
 ---
 

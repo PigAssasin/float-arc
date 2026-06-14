@@ -2,12 +2,15 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @title FloatPool v3 — Investor vault with buyer collateral, seller stake, and insurance reserve
-contract FloatPool is ReentrancyGuard, Ownable {
+/// @title FloatPool v4 — Tokenized investor vault (fLP) with buyer collateral,
+///        seller stake, and a bounded insurance reserve.
+/// @dev LP shares are a transferable ERC20 ("Float LP" / fLP, 6 decimals to match USDC).
+contract FloatPool is ERC20, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     // ─── State ────────────────────────────────────────────────────────────────
@@ -19,12 +22,15 @@ contract FloatPool is ReentrancyGuard, Ownable {
     // incoming fee accrues to LP yield instead of locking capital forever.
     uint256 public constant INSURANCE_TARGET_BPS = 1000; // 10%
 
-    uint256 public totalShares;
+    // Inflation/donation-attack guard: a minimum first deposit and permanently-locked
+    // dead shares keep totalSupply away from the dust range that enables the attack.
+    uint256 public constant MIN_FIRST_DEPOSIT = 1e6; // 1 USDC
+    uint256 public constant DEAD_SHARES       = 1e3; // locked to address(0xdead) forever
+
     uint256 public totalLockedCollateral; // buyer collateral in custody
     uint256 public sellerStakeTotal;      // seller security deposits in custody
     uint256 public insuranceReserve;      // accumulated from 1% payment fees
 
-    mapping(address => uint256) public shares;
     mapping(uint256 => uint256) public lockedCollateral; // invoiceId → buyer collateral
     mapping(uint256 => uint256) public lockedSellerStake; // invoiceId → seller stake
 
@@ -36,6 +42,7 @@ contract FloatPool is ReentrancyGuard, Ownable {
     error InsufficientLiquidity(uint256 requested, uint256 available);
     error Unauthorized();
     error CoreAlreadySet();
+    error BelowMinFirstDeposit(uint256 amount, uint256 minimum);
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
@@ -54,8 +61,13 @@ contract FloatPool is ReentrancyGuard, Ownable {
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _usdc) Ownable(msg.sender) {
+    constructor(address _usdc) ERC20("Float LP", "fLP") Ownable(msg.sender) {
         usdc = IERC20(_usdc);
+    }
+
+    /// fLP uses 6 decimals to stay 1:1-scaled with USDC.
+    function decimals() public pure override returns (uint8) {
+        return 6;
     }
 
     // ─── Admin ────────────────────────────────────────────────────────────────
@@ -68,37 +80,44 @@ contract FloatPool is ReentrancyGuard, Ownable {
 
     // ─── Investor actions ─────────────────────────────────────────────────────
 
-    /// Deposit USDC, receive proportional shares.
+    /// Deposit USDC, receive proportional fLP shares.
     function deposit(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
 
-        uint256 assets    = investorAssets();
-        uint256 newShares = (totalShares == 0 || assets == 0)
-            ? amount
-            : (amount * totalShares) / assets;
+        uint256 supply = totalSupply();
+        uint256 newShares;
 
-        totalShares += newShares;
-        shares[msg.sender] += newShares;
+        if (supply == 0) {
+            // First deposit: enforce a minimum and lock dead shares forever.
+            if (amount < MIN_FIRST_DEPOSIT) revert BelowMinFirstDeposit(amount, MIN_FIRST_DEPOSIT);
+            newShares = amount;
+            _mint(address(0xdEaD), DEAD_SHARES);
+            _mint(msg.sender, newShares - DEAD_SHARES);
+        } else {
+            uint256 assets = investorAssets();
+            newShares = assets == 0 ? amount : (amount * supply) / assets;
+            if (newShares == 0) revert ZeroShares();
+            _mint(msg.sender, newShares);
+        }
+
         emit Deposited(msg.sender, amount, newShares);
-
         usdc.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    /// Redeem shares for USDC at current share value.
+    /// Redeem fLP shares for USDC at current share value.
     function withdraw(uint256 shareAmount) external nonReentrant {
         if (shareAmount == 0) revert ZeroShares();
-        if (shares[msg.sender] < shareAmount)
-            revert InsufficientShares(shareAmount, shares[msg.sender]);
+        if (balanceOf(msg.sender) < shareAmount)
+            revert InsufficientShares(shareAmount, balanceOf(msg.sender));
 
         uint256 assets  = investorAssets();
-        uint256 usdcOut = (shareAmount * assets) / totalShares;
+        uint256 usdcOut = (shareAmount * assets) / totalSupply();
         if (usdcOut == 0) revert ZeroAmount();
 
         uint256 liquid = availableLiquidity();
         if (usdcOut > liquid) revert InsufficientLiquidity(usdcOut, liquid);
 
-        totalShares -= shareAmount;
-        shares[msg.sender] -= shareAmount;
+        _burn(msg.sender, shareAmount);
         emit Withdrawn(msg.sender, shareAmount, usdcOut);
 
         usdc.safeTransfer(msg.sender, usdcOut);
@@ -227,8 +246,18 @@ contract FloatPool is ReentrancyGuard, Ownable {
 
     /// Value of 1e18 shares in USDC, based on investor assets only.
     function shareValue() public view returns (uint256) {
-        if (totalShares == 0) return 1e18;
-        return (investorAssets() * 1e18) / totalShares;
+        uint256 supply = totalSupply();
+        if (supply == 0) return 1e18;
+        return (investorAssets() * 1e18) / supply;
+    }
+
+    /// @dev Backward-compatible aliases for the pre-tokenization share API.
+    function totalShares() external view returns (uint256) {
+        return totalSupply();
+    }
+
+    function shares(address account) external view returns (uint256) {
+        return balanceOf(account);
     }
 
     // ─── Modifiers ────────────────────────────────────────────────────────────
