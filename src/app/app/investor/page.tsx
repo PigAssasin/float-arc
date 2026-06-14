@@ -510,54 +510,77 @@ export default function InvestorPage() {
   );
 }
 
-// ── Legacy pool withdrawal (v1 contract, pre-upgrade) ────────────────────────
+// ── Legacy pool withdrawal (funds stranded in pre-v4 pools) ──────────────────
 
-const LEGACY_POOL = "0xBFd4Afda68023261621eC578f707Ec45464f95Cd" as `0x${string}`;
+// Every pool deployed before v4. Any LP who deposited into one of these can
+// reclaim their USDC here without touching the dashboard's main pool reads.
+const LEGACY_POOLS: { label: string; address: `0x${string}` }[] = [
+  { label: "v3", address: "0x1b643E7C7B640fc17F64D652fb4B3490c60D9819" },
+  { label: "v3.x", address: "0xBFd4Afda68023261621eC578f707Ec45464f95Cd" },
+  { label: "v2", address: "0xFc8bd9986B22f4eCe0D29c4C15AEEB340fd40e20" },
+];
 
 const LEGACY_POOL_ABI = [
   { inputs: [{ internalType: "address", name: "", type: "address" }], name: "shares", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" },
   { inputs: [], name: "shareValue", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" },
+  { inputs: [], name: "availableLiquidity", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" },
   { inputs: [{ internalType: "uint256", name: "shareAmount", type: "uint256" }], name: "withdraw", outputs: [], stateMutability: "nonpayable", type: "function" },
 ] as const;
 
 function LegacyPoolBanner({ address }: { address: `0x${string}` | undefined }) {
-  const { data: legacyShares } = useReadContract({
-    address: LEGACY_POOL,
-    abi: LEGACY_POOL_ABI,
-    functionName: "shares",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+  if (!address) return null;
+  return (
+    <>
+      {LEGACY_POOLS.map((p) => (
+        <LegacyPoolRow key={p.address} label={p.label} pool={p.address} address={address} />
+      ))}
+    </>
+  );
+}
 
+function LegacyPoolRow({ label, pool, address }: { label: string; pool: `0x${string}`; address: `0x${string}` }) {
+  const { data: legacyShares } = useReadContract({
+    address: pool, abi: LEGACY_POOL_ABI, functionName: "shares",
+    args: [address], query: { enabled: !!address },
+  });
   const { data: legacyShareValue } = useReadContract({
-    address: LEGACY_POOL,
-    abi: LEGACY_POOL_ABI,
-    functionName: "shareValue",
-    query: { enabled: !!address },
+    address: pool, abi: LEGACY_POOL_ABI, functionName: "shareValue", query: { enabled: !!address },
+  });
+  const { data: legacyLiquidity } = useReadContract({
+    address: pool, abi: LEGACY_POOL_ABI, functionName: "availableLiquidity", query: { enabled: !!address },
   });
 
   const { writeContract, data: txHash, isPending, error } = useWriteContract();
   const { isLoading: confirming, isSuccess: confirmed } = useWaitForTransactionReceipt({ hash: txHash, confirmations: 1 });
 
-  if (!address || !legacyShares || legacyShares === BigInt(0)) return null;
+  if (!legacyShares || legacyShares === BigInt(0)) return null;
 
   const sharesFmt = Number(formatUnits(legacyShares, USDC_DECIMALS));
   const ratio = legacyShareValue ? Number(legacyShareValue) / 1e18 : 1;
   const usdcEst = sharesFmt * ratio;
+  const liquidity = legacyLiquidity !== undefined ? Number(formatUnits(legacyLiquidity, USDC_DECIMALS)) : null;
+  // If the old pool's free liquidity can't cover the full position (funds tied up in
+  // unresolved invoices there), withdraw what is currently liquid.
+  const constrained = liquidity !== null && liquidity < usdcEst;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
       <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/[0.03] p-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex-1">
-            <p className="text-yellow-300 text-xs font-semibold uppercase tracking-widest mb-1">Legacy Pool (v1)</p>
+            <p className="text-yellow-300 text-xs font-semibold uppercase tracking-widest mb-1">Legacy Pool ({label})</p>
             <p className="text-[#E1E0CC] font-medium mb-1">
-              You have <span className="text-yellow-300">{sharesFmt.toFixed(4)} shares</span> in the old pool
+              You have <span className="text-yellow-300">{sharesFmt.toFixed(4)} fLP</span> stranded in the old pool
             </p>
             <p className="text-gray-500 text-xs">
               Estimated value: <span className="text-[#DEDBC8]">${usdcEst.toFixed(2)} USDC</span>
-              <span className="ml-2 text-gray-600">Contracts were upgraded. Withdraw and re-deposit into the new pool.</span>
+              <span className="ml-2 text-gray-600">Withdraw here, then re-deposit into the current pool.</span>
             </p>
+            {constrained && (
+              <p className="text-orange-300/80 text-[11px] mt-1">
+                Only ${liquidity!.toFixed(2)} is liquid right now (rest tied up in unresolved invoices there). Withdraw again later for the remainder.
+              </p>
+            )}
           </div>
           <div className="shrink-0">
             {confirmed ? (
@@ -569,7 +592,7 @@ function LegacyPoolBanner({ address }: { address: `0x${string}` | undefined }) {
               </div>
             ) : (
               <button
-                onClick={() => writeContract({ address: LEGACY_POOL, abi: LEGACY_POOL_ABI, functionName: "withdraw", args: [legacyShares] })}
+                onClick={() => writeContract({ address: pool, abi: LEGACY_POOL_ABI, functionName: "withdraw", args: [legacyShares], chainId: arcTestnet.id })}
                 disabled={isPending || confirming}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium border border-yellow-400/30 text-yellow-300 bg-yellow-400/[0.08] hover:bg-yellow-400/[0.14] disabled:opacity-50 transition-all"
               >
