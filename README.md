@@ -36,8 +36,8 @@ Buyer pays 100% at due date
 | Role | Action | Outcome |
 |------|--------|---------|
 | **Seller (SME)** | Creates invoice, receives advance | 75–88% upfront, stake returned on buyer payment |
-| **Buyer** | Approves invoice, locks collateral, pays at maturity | Collateral fully refunded on payment |
-| **Investor (LP)** | Deposits USDC into pool | Earns 12–25% spread from every advance |
+| **Buyer** | Approves invoice, locks collateral, pays at maturity (in full or in installments) | Collateral fully refunded on payment |
+| **Investor (LP)** | Deposits USDC into pool, holds transferable `fLP` | Earns 12–25% spread from every advance |
 
 ### Credit Score Tiers
 
@@ -50,9 +50,9 @@ Buyer pays 100% at due date
 
 Score improves with on-time buyer payments.
 
-### Protocol Safety (v3)
+### Protocol Safety
 
-Float v3 implements a three-layer default protection model:
+Float implements a three-layer default protection model:
 
 1. **Seller stake** — 5-10% withheld from advance, slashed first on default
 2. **Insurance reserve** — 1% of every repayment builds a reserve fund that covers LP shortfall
@@ -82,8 +82,8 @@ Deployed on Arc Testnet:
 
 | Contract | Address |
 |----------|---------|
-| FloatPool | `0x1b643E7C7B640fc17F64D652fb4B3490c60D9819` |
-| FloatCore | `0xc8934c61A580290fC63a374CEF4B4e03366930C9` |
+| FloatPool (ERC20 `fLP`) | `0x98bF7f0572f542fBD6365531D39C657779839375` |
+| FloatCore | `0x336Be2095425ac463c6E121461B68401c3209c85` |
 | USDC | `0x3600000000000000000000000000000000000000` |
 
 ### FloatCore
@@ -93,18 +93,27 @@ Manages the full invoice lifecycle:
 - `createInvoice(buyer, amount, dueDate)` — seller creates invoice
 - `approveInvoice(id)` — buyer approves
 - `lockCollateral(id)` — buyer locks collateral, pool funds advance
-- `payInvoice(id)` — buyer repays, stake and collateral returned
+- `payInvoice(id)` — buyer repays the remaining balance (early-payment discount applies)
+- `payPartial(id, amount)` — buyer repays in installments; auto-settles at face value
 - `markDefault(id)` — anyone can call after grace period expires
 - `sellerScore(address)` / `sellerAdvanceBps(address)` — credit system
 
+Production anti-Sybil hooks ship disabled by default (frictionless on testnet): an
+optional verification gate and a per-seller outstanding-exposure cap, both operator-controlled.
+
 ### FloatPool
 
-ERC4626-style vault managing four asset buckets:
+A tokenized vault: LP shares are a transferable ERC20 (`Float LP` / `fLP`, 6 decimals),
+so investors can move or trade their position without waiting for pool liquidity. It tracks
+four asset buckets:
 
 - **Investor assets** — available for advances
 - **Locked collateral** — held during invoice lifecycle
 - **Seller stakes** — held until payment or default
-- **Insurance reserve** — built from 1% of repayments
+- **Insurance reserve** — built from 1% of repayments, capped at 10% of investor assets
+
+A minimum first deposit plus permanently-locked dead shares neutralize the classic
+ERC4626 inflation/donation attack.
 
 ---
 
@@ -193,7 +202,13 @@ Track 2 — SME Trade Finance and Working Capital
 **Key integrations:**
 - Arc Testnet — native USDC, 1-second finality, no MetaMask required
 - Circle Wallets SDK — PIN-based wallets for non-crypto-native SMEs
-- DeepSeek V3 — context-aware AI assistant with live on-chain data
+- DeepSeek V3 — AI assistant with on-chain function calling (reads live pool, score, and invoice data)
+
+**Highlights:**
+- Tokenized LP position (`fLP` ERC20) — exit or compose without waiting for liquidity
+- Installment repayment — buyers pay invoices in tranches
+- Three-layer default protection (seller stake → insurance reserve → LP buffer)
+- 34 passing contract tests including a quantified self-dealing exploit and a pool solvency invariant
 
 ---
 
