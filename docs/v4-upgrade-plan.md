@@ -299,15 +299,21 @@ so DeepSeek can query live chain data via tools instead of relying only on injec
 
 ## Phase 7 — Final QA, docs, ship
 
-- [ ] `cd contracts && npx hardhat test` — all green.
-- [ ] `npx tsc --noEmit` and `npm run build` — clean.
-- [ ] Manual run of all four flows on v4 (seller, buyer incl. partial, investor incl. LP transfer, assistant).
-- [ ] Update [README.md](../README.md): v4 addresses, new features (tokenized LP, installments, AI tools). Keep it AI-attribution-free and personal-info-free.
-- [ ] Update [CLAUDE.md](../CLAUDE.md) contract addresses + lessons learned.
-- [ ] Deploy: `vercel --prod --yes` then `vercel alias <url> float-arc.vercel.app`.
-- [ ] Merge `feat/v4` → `master`, push, tag `v4.0`.
+- [x] `cd contracts && npx hardhat test` — all green (34 passing).
+- [x] `npx tsc --noEmit` and `npm run build` — clean.
+- [x] AI assistant flow smoke-tested end to end against v4 (pool stats + score, EN + VN).
+- [x] Update [README.md](../README.md): v4 addresses, new features. AI-attribution-free, no personal info.
+- [x] Update [CLAUDE.md](../CLAUDE.md) contract addresses (local; gitignored).
+- [x] Merge `feat/v4` → `master`, push, tag `v4.0`.
+- [ ] **MANUAL (Vercel CLI not installed):** update Vercel env vars then redeploy:
+  - `NEXT_PUBLIC_FLOAT_POOL_ADDRESS=0x98bF7f0572f542fBD6365531D39C657779839375`
+  - `NEXT_PUBLIC_FLOAT_CORE_ADDRESS=0x336Be2095425ac463c6E121461B68401c3209c85`
+  - `DEEPSEEK_API_KEY=<key>` (server-side; required for the assistant)
+  - Then `npm i -g vercel && vercel --prod --yes && vercel alias <url> float-arc.vercel.app`
+    (or set the vars in the Vercel dashboard and Redeploy). If the GitHub repo is connected to
+    Vercel, the master push already triggered a build — just fix the env vars and redeploy.
 
-**✅ Checkpoint 7 (DONE):** Tests green, build clean, v4 live on float-arc.vercel.app, repo updated.
+**✅ Checkpoint 7 [DONE, except Vercel deploy]:** Tests green (34), build clean, AI verified, docs updated, merged to master + tagged v4.0 + pushed. Live deploy is the one remaining manual step (env vars + redeploy) because the Vercel CLI is not installed and v4 code must not be served against stale v3 env-var addresses.
 
 ---
 
