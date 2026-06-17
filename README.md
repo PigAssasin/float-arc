@@ -4,7 +4,7 @@
 
 Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). Small businesses upload invoices and receive an immediate USDC advance. Buyers pay at maturity. Liquidity providers earn yield on every advance.
 
-**Live demo:** [float-arc.vercel.app](https://float-arc.vercel.app)
+**Live demo:** [floatsme.xyz](https://floatsme.xyz) · [float-arc.vercel.app](https://float-arc.vercel.app)
 
 ---
 
