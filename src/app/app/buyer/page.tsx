@@ -1,9 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAppWallet } from "@/hooks/use-app-wallet";
 import { formatUnits, parseUnits } from "viem";
-import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
+import { VerifyBadge } from "@/components/shared/VerifyBadge";
 import { CONTRACTS, FloatCoreABI, ERC20ABI, USDC_DECIMALS, InvoiceStatus } from "@/lib/contracts";
 import { arcTestnet } from "@/lib/wagmi-config";
 import { useMyInvoices, OnChainInvoice } from "@/hooks/use-my-invoices";
@@ -104,7 +107,7 @@ function ApprovalCard({ inv }: { inv: OnChainInvoice }) {
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-orange-400/15 text-orange-400 border border-orange-400/20">
               Pending Your Approval
             </span>
-            <span className="text-gray-600 text-xs font-mono">#{String(inv.id)}</span>
+            <span className="ml-auto text-[10px] font-mono text-gray-500">#{String(inv.id)}</span>
           </div>
           <p className="text-[#E1E0CC] font-medium text-lg tabular-nums mb-1">
             ${amountFmt} USDC invoice
@@ -197,7 +200,7 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
         <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-yellow-400/15 text-yellow-300 border border-yellow-400/20">
           <Lock className="w-2.5 h-2.5" /> Needs Collateral
         </span>
-        <span className="text-gray-600 text-xs font-mono">#{String(inv.id)}</span>
+        <span className="ml-auto text-[10px] font-mono text-gray-500">#{String(inv.id)}</span>
       </div>
 
       {/* Amount */}
@@ -269,7 +272,7 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
 
 // ── Funded card (FUNDED) — with early repayment discount ────────────────────
 
-function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${string}` }) {
+function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address: `0x${string}`; onSettled?: () => void }) {
   const { data: earlyRepay } = useReadContract({
     address: CONTRACTS.FLOAT_CORE,
     abi: FloatCoreABI,
@@ -292,12 +295,19 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
   const { writeContract: payWrite, data: payTxHash, isPending: payPending, error: payError } = useWriteContract();
   const { writeContract: partialWrite, data: partialTxHash, isPending: partialPending, error: partialError } = useWriteContract();
   const { writeContract: defaultWrite, data: defaultTxHash, isPending: defaultPending, error: defaultError } = useWriteContract();
-  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash, confirmations: 1,
-    onSuccess: () => { refetchAllowance(); }
-  } as Parameters<typeof useWaitForTransactionReceipt>[0]);
+  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash, confirmations: 1 });
   const { isSuccess: paid } = useWaitForTransactionReceipt({ hash: payTxHash, confirmations: 1 });
   const { isSuccess: partialPaid } = useWaitForTransactionReceipt({ hash: partialTxHash, confirmations: 1 });
   const { isSuccess: markedDefault } = useWaitForTransactionReceipt({ hash: defaultTxHash, confirmations: 1 });
+
+  // wagmi v2 has no onSuccess on useWaitForTransactionReceipt — refetch allowance once approve confirms
+  useEffect(() => {
+    if (approveConfirmed) refetchAllowance();
+  }, [approveConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (partialPaid || paid || markedDefault) onSettled?.();
+  }, [partialPaid, paid, markedDefault]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const amountDue = earlyRepay ? earlyRepay[0] : inv.amount;
   const discount = earlyRepay ? earlyRepay[1] : BigInt(0);
@@ -367,13 +377,13 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
               ? <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">Grace period ended</span>
               : <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20">Active</span>
             }
-            <span className="text-gray-600 text-xs font-mono">#{String(inv.id)}</span>
             {isUrgent && !pastGrace && <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />}
             {hasDiscount && !pastGrace && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
                 Save ${discountFmt} early
               </span>
             )}
+            <span className="ml-auto text-[10px] font-mono text-gray-500">#{String(inv.id)}</span>
           </div>
           <p className="text-[#E1E0CC] font-bold text-2xl tabular-nums mb-1">
             ${amountDueFmt} USDC
@@ -422,7 +432,7 @@ function FundedCard({ inv, address }: { inv: OnChainInvoice; address: `0x${strin
           </button>
           {pastGrace && (
             <button
-              onClick={() => defaultWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "markDefault", args: [inv.id] })}
+              onClick={() => defaultWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "markDefault", args: [inv.id], chainId: arcTestnet.id })}
               disabled={defaultPending}
               className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium border border-red-500/20 text-red-400/60 bg-red-500/[0.04] hover:bg-red-500/[0.08] disabled:opacity-50 transition-all"
             >
@@ -509,8 +519,8 @@ function buyerTierCollateral(tier: string): string {
 // ── Buyer page ───────────────────────────────────────────────────────────────
 
 export default function BuyerPage() {
-  const { isConnected, address } = useAccount();
-  const { invoices, isLoading, total } = useMyInvoices(address, "buyer");
+  const { isConnected, address } = useAppWallet();
+  const { invoices, isLoading, total, refetch } = useMyInvoices(address, "buyer");
 
   const { data: rawBuyerScore } = useReadContract({
     address: CONTRACTS.FLOAT_CORE,
@@ -524,7 +534,7 @@ export default function BuyerPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Buyer dashboard</p>
-        <ConnectWalletButton />
+        <ConnectButton />
       </div>
     );
   }
@@ -547,6 +557,8 @@ export default function BuyerPage() {
   return (
     <div className="flex flex-col gap-6">
 
+      <WrongChainBanner />
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 14 }}
@@ -558,10 +570,13 @@ export default function BuyerPage() {
           <p className="text-primary text-[10px] tracking-[0.2em] uppercase font-semibold mb-1">Buyer Dashboard</p>
           <h1 className="text-2xl sm:text-3xl font-medium" style={{ color: "#E1E0CC" }}>Your outstanding invoices.</h1>
         </div>
-        <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-full text-gray-400 bg-white/[0.04] border border-white/[0.07]">
-          <Clock className="w-3 h-3" />
-          {total} total on-chain
-        </span>
+        <div className="flex items-center gap-2">
+          <VerifyBadge />
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-full text-gray-400 bg-white/[0.04] border border-white/[0.07]">
+            <Clock className="w-3 h-3" />
+            {total} total on-chain
+          </span>
+        </div>
       </motion.div>
 
       {/* Stats strip */}
@@ -650,7 +665,7 @@ export default function BuyerPage() {
                 Active Invoices ({funded.length})
               </p>
               <div className="flex flex-col gap-3">
-                {funded.map((inv) => <FundedCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} />)}
+                {funded.map((inv) => <FundedCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} onSettled={refetch} />)}
               </div>
             </motion.div>
           )}

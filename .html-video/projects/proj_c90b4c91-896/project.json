@@ -1,0 +1,21 @@
+{
+  "id": "proj_c90b4c91-896",
+  "name": "demo-video",
+  "assets": [],
+  "templateId": "frame-kinetic-type",
+  "variables": {},
+  "preferences": {
+    "commercial": false
+  },
+  "status": "rendered",
+  "createdAt": "2026-06-16T11:33:37.103Z",
+  "updatedAt": "2026-06-16T11:34:17.388Z",
+  "lastOutputMp4Path": "F:\\The Stablecoins Commerce Stack Challenge\\.html-video\\projects\\proj_c90b4c91-896\\output-2026-06-16_11-33-45.mp4",
+  "exports": [
+    {
+      "path": "F:\\The Stablecoins Commerce Stack Challenge\\.html-video\\projects\\proj_c90b4c91-896\\output-2026-06-16_11-33-45.mp4",
+      "filename": "output-2026-06-16_11-33-45.mp4",
+      "createdAt": "2026-06-16T11:34:17.388Z"
+    }
+  ]
+}

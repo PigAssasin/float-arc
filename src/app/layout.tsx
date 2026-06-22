@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Providers } from "@/lib/providers";
+import { Web3Provider } from "@/components/Web3Provider";
 
 export const metadata: Metadata = {
   title: "Float: Float your invoices",
@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="bg-black min-h-screen">
-        <Providers>{children}</Providers>
+        <Web3Provider>{children}</Web3Provider>
       </body>
     </html>
   );

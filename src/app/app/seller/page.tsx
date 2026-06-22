@@ -1,10 +1,13 @@
 "use client";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAppWallet } from "@/hooks/use-app-wallet";
+import { useCircleWalletContext } from "@/contexts/circle-wallet-context";
 import { parseUnits } from "viem";
 import { useMyInvoices, OnChainInvoice } from "@/hooks/use-my-invoices";
-import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { CreditScoreBadge } from "@/components/dashboard/CreditScoreBadge";
 import { InvoiceTable } from "@/components/dashboard/InvoiceTable";
 import { CONTRACTS, FloatCoreABI, FloatPoolABI, USDC_DECIMALS } from "@/lib/contracts";
@@ -21,9 +24,9 @@ const TIER_COLORS: Record<string, string> = {
 // Tier is derived from the on-chain advance rate (bps), not the raw score: an
 // unproven seller (no history) gets the conservative New tier even though score reads 50.
 function rateToTier(rateBps: number): string {
-  if (rateBps >= 8800) return "Excellent";
-  if (rateBps >= 8400) return "Good";
-  if (rateBps >= 8000) return "Fair";
+  if (rateBps >= 9000) return "Excellent";
+  if (rateBps >= 8800) return "Good";
+  if (rateBps >= 8500) return "Fair";
   return "New";
 }
 
@@ -58,15 +61,18 @@ function TxError({ error }: { error: Error | null }) {
 
 // ── Stale invoice cancel card ─────────────────────────────────────────────────
 
-const APPROVAL_TIMEOUT_S = 72 * 3600;   // 259200
-const COLLATERAL_TIMEOUT_S = 120 * 3600; // 432000
+const APPROVAL_TIMEOUT_S = 72 * 3600;  // 259200 — matches FloatCore.APPROVAL_TIMEOUT
+const COLLATERAL_TIMEOUT_S = 48 * 3600; // 172800 — matches FloatCore.COLLATERAL_TIMEOUT
 
 function StaleInvoiceCard({ inv, type }: { inv: OnChainInvoice; type: "approval" | "collateral" }) {
   const { writeContract, data: txHash, isPending, error } = useWriteContract();
   const { isSuccess: cancelled } = useWaitForTransactionReceipt({ hash: txHash, confirmations: 1 });
 
   const amountFmt = (Number(inv.amount) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const hoursStale = Math.floor((Date.now() / 1000 - Number(inv.createdAt) - (type === "approval" ? APPROVAL_TIMEOUT_S : COLLATERAL_TIMEOUT_S)) / 3600);
+  const baseTs = type === "collateral" && Number(inv.approvedAt) > 0
+    ? Number(inv.approvedAt)
+    : Number(inv.createdAt);
+  const hoursStale = Math.floor((Date.now() / 1000 - baseTs - (type === "approval" ? APPROVAL_TIMEOUT_S : COLLATERAL_TIMEOUT_S)) / 3600);
 
   const handleCancel = () => {
     writeContract({
@@ -113,7 +119,7 @@ function StaleInvoiceCard({ inv, type }: { inv: OnChainInvoice; type: "approval"
 }
 
 export default function SellerPage() {
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, isCircle } = useAppWallet();
   const { invoices } = useMyInvoices(address, "seller");
 
   const [buyer, setBuyer] = useState("");
@@ -168,12 +174,25 @@ export default function SellerPage() {
     query: { enabled: !!CONTRACTS.FLOAT_CORE },
   });
 
+  const buyerValid = /^0x[a-fA-F0-9]{40}$/.test(buyer);
+  // Term in seconds from the chosen due date (for the fee, which is term-scaled).
+  const termSeconds = days === "custom" && customDate
+    ? Math.max(0, Math.floor(new Date(customDate).getTime() / 1000) - Math.floor(Date.now() / 1000))
+    : parseInt(days || "30") * 86400;
+
+  const { data: rawFeeBps } = useReadContract({
+    address: CONTRACTS.FLOAT_CORE,
+    abi: FloatCoreABI,
+    functionName: "feeBpsForTerm",
+    args: buyerValid ? [buyer as `0x${string}`, BigInt(termSeconds)] : undefined,
+    query: { enabled: buyerValid && !!CONTRACTS.FLOAT_CORE },
+  });
+
   // ── Derived values ──────────────────────────────────────────────────────────
 
   const score = rawScore !== undefined ? Number(rawScore) : 50;
-  const rateBps = rawRate !== undefined ? Number(rawRate) : 7500;
-  const advanceRate = rateBps / 100; // e.g. 7500 → 75
-  const fee = 100 - advanceRate;
+  const rateBps = rawRate !== undefined ? Number(rawRate) : 8000;
+  const advanceRate = rateBps / 100; // e.g. 8000 → 80
   const tier = rateToTier(rateBps);
   const tierColor = TIER_COLORS[tier] ?? "#DEDBC8";
 
@@ -183,14 +202,19 @@ export default function SellerPage() {
     ? Math.round((1 - liquidity / totalAssets) * 100)
     : null;
 
-  // Stake rate mirrors sellerStakeBps() in FloatCore.sol (derived from tier/rate)
-  const stakeRate = rateBps >= 8800 ? 5 : rateBps >= 8400 ? 6 : rateBps >= 8000 ? 8 : 10;
-  const netAdvanceRate = advanceRate - stakeRate; // what seller actually receives upfront
+  // v6 stake rate mirrors sellerStakeBps(): 2/3/4/5 by tier.
+  const stakeRate = rateBps >= 9000 ? 2 : rateBps >= 8800 ? 3 : rateBps >= 8500 ? 4 : 5;
+  const netAdvanceRate = advanceRate - stakeRate; // what seller receives upfront
+
+  // v6 fee = the seller's only cost (term-scaled, buyer-tier based). Default shows the
+  // New-buyer 3%/30d estimate until a valid buyer address is entered.
+  const feeRate = rawFeeBps !== undefined ? Number(rawFeeBps) / 100 : 3 * Math.max(1, Math.ceil(termSeconds / (30 * 86400)));
+  const residualRate = Math.max(0, 100 - advanceRate - feeRate); // returned to seller at payment
 
   const advancePreview   = amount ? parseFloat(amount) * advanceRate    / 100 : null;
   const stakePreview     = amount ? parseFloat(amount) * stakeRate       / 100 : null;
   const netAdvPreview    = amount ? parseFloat(amount) * netAdvanceRate  / 100 : null;
-  const feePreview       = amount ? parseFloat(amount) * fee             / 100 : null;
+  const feePreview       = amount ? parseFloat(amount) * feeRate         / 100 : null;
 
   // Max invoice = (size cap % of available liquidity) / advance rate, cap read on-chain
   const maxInvoiceFrac = rawMaxInvoiceBps !== undefined ? Number(rawMaxInvoiceBps) / 10_000 : 0.2;
@@ -243,20 +267,51 @@ export default function SellerPage() {
     });
   };
 
+  // ── Circle wallet flow (PIN-signed) ─────────────────────────────────────────
+  const { executeContract } = useCircleWalletContext();
+  const [circleBusy, setCircleBusy] = useState(false);
+  const [circleError, setCircleError] = useState<Error | null>(null);
+  const [circleDone, setCircleDone] = useState(false);
+
+  const handleCircleCreate = async () => {
+    setCircleError(null); setCircleDone(false); setCircleBusy(true);
+    try {
+      await executeContract({
+        contractAddress: CONTRACTS.FLOAT_CORE,
+        abiFunctionSignature: "createInvoice(address,uint256,uint256)",
+        abiParameters: [buyer, parseUnits(amount, USDC_DECIMALS).toString(), getDueTimestamp().toString()],
+      });
+      await new Promise((r) => setTimeout(r, 4000));
+      setCircleDone(true);
+      setBuyer(""); setAmount(""); setDays("30"); setCustomDate("");
+    } catch (e) {
+      setCircleError(e as Error);
+    } finally {
+      setCircleBusy(false);
+    }
+  };
+
+  const onFormSubmit = (e: React.FormEvent) => {
+    if (isCircle) { e.preventDefault(); handleCircleCreate(); }
+    else handleSubmit(e);
+  };
+
   const isLoading = isPending || isConfirming;
-  const canSubmit = !!buyer && !!amount && !isLoading && !!CONTRACTS.FLOAT_CORE && !invoiceTooLarge;
+  const canSubmit = !!buyer && !!amount && !isLoading && !circleBusy && !!CONTRACTS.FLOAT_CORE && !invoiceTooLarge;
 
   if (!isConnected) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Seller dashboard</p>
-        <ConnectWalletButton />
+        <ConnectButton />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
+
+      <WrongChainBanner />
 
       {/* Header */}
       <motion.div
@@ -338,7 +393,7 @@ export default function SellerPage() {
           className="lg:col-span-2 flex flex-col"
         >
           <GlassCard className="p-6 flex-1">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            <form onSubmit={onFormSubmit} className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-[#E1E0CC] font-medium">New Invoice</h2>
                 <div className="flex items-center gap-2">
@@ -364,7 +419,7 @@ export default function SellerPage() {
                     Your tier is <span style={{ color: tierColor }} className="font-semibold">{tier}</span> ({advanceRate}% advance).
                     When the buyer approves and locks collateral you receive <span className="text-primary font-semibold">{netAdvanceRate}%</span> upfront.
                     A <span className="text-primary font-semibold">{stakeRate}%</span> stake is held and returned to you when the buyer pays.
-                    The remaining <span className="text-primary font-semibold">{fee.toFixed(0)}%</span> is the float fee.
+                    At payment you also get the remaining <span className="text-primary font-semibold">{residualRate.toFixed(1)}%</span> back. Your only cost is the <span className="text-primary font-semibold">{feeRate.toFixed(1)}%</span> fee.
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -479,11 +534,11 @@ export default function SellerPage() {
                         <p className="text-gray-600 text-xs mt-1">{stakeRate}% · back on pay</p>
                       </div>
                       <div className="p-4">
-                        <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1">Float fee</p>
+                        <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1">Fee (your cost)</p>
                         <p className="text-gray-400 font-bold text-xl tabular-nums">
-                          ${feePreview!.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          ${feePreview!.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </p>
-                        <p className="text-gray-600 text-xs mt-1">{fee.toFixed(0)}% · protocol spread</p>
+                        <p className="text-gray-600 text-xs mt-1">{feeRate.toFixed(1)}% · rest returned on pay</p>
                       </div>
                     </div>
                     <div className="px-4 pb-3">
@@ -494,24 +549,31 @@ export default function SellerPage() {
                       <div className="flex justify-between mt-1">
                         <span className="text-[#DEDBC8] text-[10px]">{netAdvanceRate}% net advance</span>
                         <span className="text-yellow-400/70 text-[10px]">{stakeRate}% stake</span>
-                        <span className="text-gray-500 text-[10px]">{fee.toFixed(0)}% fee</span>
+                        <span className="text-gray-500 text-[10px]">{feeRate.toFixed(1)}% fee</span>
                       </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <TxError error={writeError as Error | null} />
+              <TxError error={(writeError || circleError) as Error | null} />
+
+              {isCircle && (
+                <div className="flex items-center gap-2 text-blue-400 text-xs rounded-xl border border-blue-500/20 bg-blue-500/[0.06] px-4 py-3">
+                  <Info className="w-4 h-4 shrink-0" />
+                  Circle Wallet signs with your PIN. Make sure the wallet holds USDC on Arc to cover gas.
+                </div>
+              )}
 
               <button
                 type="submit"
                 disabled={!canSubmit}
                 className="group flex items-center justify-center gap-2 bg-[#DEDBC8] hover:gap-3 text-black font-medium text-sm pl-6 pr-3 py-3 rounded-full transition-all duration-300 disabled:opacity-30 cursor-pointer"
               >
-                {isLoading ? (
+                {isLoading || circleBusy ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>{isConfirming ? "Confirming on Arc..." : "Waiting for wallet..."}</span>
+                    <span>{circleBusy ? "Enter your PIN..." : isConfirming ? "Confirming on Arc..." : "Waiting for wallet..."}</span>
                   </>
                 ) : (
                   <>
@@ -524,7 +586,7 @@ export default function SellerPage() {
               </button>
 
               <AnimatePresence>
-                {isConfirmed && (
+                {(isConfirmed || circleDone) && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -604,7 +666,7 @@ export default function SellerPage() {
           (inv) => inv.status === 0 && nowS > Number(inv.createdAt) + APPROVAL_TIMEOUT_S
         );
         const staleCollateral = invoices.filter(
-          (inv) => inv.status === 1 && nowS > Number(inv.createdAt) + COLLATERAL_TIMEOUT_S
+          (inv) => inv.status === 1 && Number(inv.approvedAt) > 0 && nowS > Number(inv.approvedAt) + COLLATERAL_TIMEOUT_S
         );
         const stale = [...staleApproval.map((inv) => ({ inv, type: "approval" as const })), ...staleCollateral.map((inv) => ({ inv, type: "collateral" as const }))];
         if (stale.length === 0) return null;

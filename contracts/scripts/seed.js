@@ -1,6 +1,6 @@
 const { ethers } = require("hardhat");
 const USDC = "0x3600000000000000000000000000000000000000";
-const POOL = "0x98bF7f0572f542fBD6365531D39C657779839375";
+const POOL = "0x866Af692C71D9e1d191be551981c546870413484";
 const ERC20 = [
   "function balanceOf(address) view returns (uint256)",
   "function approve(address,uint256) returns (bool)",

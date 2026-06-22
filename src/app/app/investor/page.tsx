@@ -1,11 +1,15 @@
 "use client";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAppWallet } from "@/hooks/use-app-wallet";
+import { useCircleWalletContext } from "@/contexts/circle-wallet-context";
+import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { parseUnits, formatUnits } from "viem";
-import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { CONTRACTS, FloatPoolABI, ERC20ABI, USDC_DECIMALS } from "@/lib/contracts";
 import { arcTestnet } from "@/lib/wagmi-config";
+import { arcPublicClient, pollUntil } from "@/lib/arc-client";
 import { ArrowRight, TrendingUp, Wallet, BarChart3, CheckCircle2, Activity, Loader2, AlertCircle } from "lucide-react";
 
 function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -19,26 +23,38 @@ function GlassCard({ children, className = "" }: { children: React.ReactNode; cl
   );
 }
 
-const SPARKLINE = [62, 64, 61, 66, 68, 65, 70, 72, 71, 74, 73, 77, 76, 80, 79, 84];
 
 function TxError({ error }: { error: Error | null }) {
+  const [show, setShow] = useState(false);
   if (!error) return null;
   const msg = error.message ?? "";
   let friendly = "Transaction failed.";
   if (msg.includes("InsufficientShares")) friendly = "Not enough shares to withdraw.";
   else if (msg.includes("InsufficientLiquidity")) friendly = "Pool has insufficient liquidity. Try a smaller amount.";
-  else if (msg.includes("insufficient allowance")) friendly = "Please approve USDC first.";
-  else if (msg.includes("User rejected")) friendly = "Transaction rejected in wallet.";
+  else if (msg.includes("insufficient allowance") || msg.includes("ERC20InsufficientAllowance")) friendly = "Please approve USDC first.";
+  else if (msg.includes("User rejected") || msg.includes("user rejected")) friendly = "Transaction rejected in wallet.";
+  else if (msg.includes("chain") || msg.includes("Chain") || msg.includes("network") || msg.includes("Network")) friendly = "Wrong network — switch to Arc Testnet (chain 5042002) in your wallet.";
+  else if (msg.includes("not found") || msg.includes("contract")) friendly = "Contract not found — make sure you are on Arc Testnet.";
   return (
-    <div className="flex items-center gap-2 text-red-400 text-xs rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">
-      <AlertCircle className="w-4 h-4 shrink-0" />
-      {friendly}
+    <div className="flex flex-col gap-1.5 text-red-400 text-xs rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">
+      <div className="flex items-center gap-2">
+        <AlertCircle className="w-4 h-4 shrink-0" />
+        <span className="flex-1">{friendly}</span>
+        <button onClick={() => setShow(v => !v)} className="text-red-400/50 hover:text-red-400 transition-colors shrink-0">
+          {show ? "hide" : "details"}
+        </button>
+      </div>
+      {show && (
+        <pre className="text-[10px] text-red-400/60 overflow-auto max-h-28 whitespace-pre-wrap break-all leading-relaxed">
+          {msg.slice(0, 600)}
+        </pre>
+      )}
     </div>
   );
 }
 
 export default function InvestorPage() {
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, isCircle } = useAppWallet();
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [transferTo, setTransferTo] = useState("");
@@ -112,8 +128,10 @@ export default function InvestorPage() {
   const withdrawAmountNum = withdrawAmount ? parseFloat(withdrawAmount) : 0;
   const estimatedUsdc = withdrawAmountNum * shareValueRatio;
 
-  const needsApprove = depositAmountNum > 0 && rawAllowance !== undefined
-    && rawAllowance < parseUnits(depositAmount || "0", USDC_DECIMALS);
+  // Conservative: treat undefined allowance (RPC read still pending) as needing approval
+  const needsApprove = depositAmountNum > 0 && (
+    rawAllowance === undefined || rawAllowance < parseUnits(depositAmount || "0", USDC_DECIMALS)
+  );
 
   // ── Deposit flow (approve → deposit) ────────────────────────────────────────
 
@@ -175,14 +193,80 @@ export default function InvestorPage() {
     });
   };
 
-  const depositLoading = approvePending || approveConfirming || depositPending || depositConfirming;
-  const withdrawLoading = withdrawPending || withdrawConfirming;
+  // ── Circle wallet flow (PIN-signed contract execution on Arc) ───────────────
+  const { executeContract } = useCircleWalletContext();
+  const [circleBusy, setCircleBusy] = useState(false);
+  const [circleStep, setCircleStep] = useState("");
+  const [circleError, setCircleError] = useState<Error | null>(null);
+  const [circleDepositDone, setCircleDepositDone] = useState(false);
+  const [circleWithdrawDone, setCircleWithdrawDone] = useState(false);
+
+  const handleCircleDeposit = async () => {
+    if (!address) return;
+    setCircleError(null); setCircleDepositDone(false); setCircleBusy(true);
+    try {
+      const amt = parseUnits(depositAmount, USDC_DECIMALS);
+      setCircleStep("Approve USDC — enter your PIN");
+      await executeContract({
+        contractAddress: CONTRACTS.USDC,
+        abiFunctionSignature: "approve(address,uint256)",
+        abiParameters: [CONTRACTS.FLOAT_POOL, amt.toString()],
+      });
+      setCircleStep("Waiting for approval to confirm…");
+      const approved = await pollUntil(async () => {
+        const a = (await arcPublicClient.readContract({
+          address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "allowance",
+          args: [address, CONTRACTS.FLOAT_POOL],
+        })) as bigint;
+        return a >= amt;
+      });
+      if (!approved) throw new Error("Approval is taking longer than expected. Please try Deposit again.");
+      setCircleStep("Deposit — enter your PIN");
+      await executeContract({
+        contractAddress: CONTRACTS.FLOAT_POOL,
+        abiFunctionSignature: "deposit(uint256)",
+        abiParameters: [amt.toString()],
+      });
+      setCircleStep("Confirming deposit…");
+      await new Promise((r) => setTimeout(r, 4000));
+      setCircleDepositDone(true);
+      setDepositAmount("");
+    } catch (e) {
+      setCircleError(e as Error);
+    } finally {
+      setCircleBusy(false); setCircleStep("");
+    }
+  };
+
+  const handleCircleWithdraw = async () => {
+    setCircleError(null); setCircleWithdrawDone(false); setCircleBusy(true);
+    try {
+      const amt = parseUnits(withdrawAmount, USDC_DECIMALS);
+      setCircleStep("Withdraw — enter your PIN");
+      await executeContract({
+        contractAddress: CONTRACTS.FLOAT_POOL,
+        abiFunctionSignature: "withdraw(uint256)",
+        abiParameters: [amt.toString()],
+      });
+      setCircleStep("Confirming…");
+      await new Promise((r) => setTimeout(r, 4000));
+      setCircleWithdrawDone(true);
+      setWithdrawAmount("");
+    } catch (e) {
+      setCircleError(e as Error);
+    } finally {
+      setCircleBusy(false); setCircleStep("");
+    }
+  };
+
+  const depositLoading = approvePending || approveConfirming || depositPending || depositConfirming || circleBusy;
+  const withdrawLoading = withdrawPending || withdrawConfirming || circleBusy;
 
   if (!isConnected) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Investor dashboard</p>
-        <ConnectWalletButton />
+        <ConnectButton />
       </div>
     );
   }
@@ -206,6 +290,8 @@ export default function InvestorPage() {
           Pool live
         </span>
       </motion.div>
+
+      <WrongChainBanner />
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -278,26 +364,13 @@ export default function InvestorPage() {
               )}
             </div>
 
-            {/* Sparkline */}
-            <div className="hidden sm:flex flex-col gap-2">
-              <p className="text-gray-500 text-[10px] uppercase tracking-widest">Share value trend</p>
-              <svg viewBox="0 0 160 60" className="w-full h-16" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d={`M0,${60 - SPARKLINE[0] * 0.5} ${SPARKLINE.map((v, i) => `L${i * (160 / (SPARKLINE.length - 1))},${60 - v * 0.5}`).join(" ")} L160,60 L0,60 Z`}
-                  fill="url(#sparkGrad)"
-                />
-                <path
-                  d={`M0,${60 - SPARKLINE[0] * 0.5} ${SPARKLINE.map((v, i) => `L${i * (160 / (SPARKLINE.length - 1))},${60 - v * 0.5}`).join(" ")}`}
-                  fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-                />
-              </svg>
-              <p className="text-[10px] text-gray-600">Share value rises as invoice fees accrue</p>
+            {/* Current share value */}
+            <div className="hidden sm:flex flex-col gap-2 justify-center">
+              <p className="text-gray-500 text-[10px] uppercase tracking-widest">Current share value</p>
+              <p className="text-[#22c55e] font-bold text-3xl tabular-nums">
+                ${shareValueRatio.toFixed(4)}
+              </p>
+              <p className="text-[10px] text-gray-600">per fLP · rises as fees accrue</p>
             </div>
           </div>
         </GlassCard>
@@ -350,52 +423,84 @@ export default function InvestorPage() {
                   </div>
                 )}
 
-                <TxError error={(approveError || depositError) as Error | null} />
+                <TxError error={(approveError || depositError || (isCircle ? circleError : null)) as Error | null} />
 
-                {/* Step 1: Approve (if needed) */}
-                {needsApprove && !approveConfirmed && (
-                  <button
-                    type="button"
-                    onClick={handleApprove}
-                    disabled={depositLoading}
-                    className="flex items-center justify-center gap-2 text-sm font-medium px-5 py-3 rounded-full transition-all duration-300 disabled:opacity-50"
-                    style={{ background: "rgba(251,146,60,0.15)", border: "1px solid rgba(251,146,60,0.3)", color: "#fb923c" }}
-                  >
-                    {approvePending || approveConfirming
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Approving USDC…</>
-                      : <>Step 1: Approve USDC</>}
-                  </button>
-                )}
-
-                {/* Step 2: Deposit */}
-                <button
-                  type="button"
-                  onClick={handleDeposit}
-                  disabled={!depositAmount || depositLoading || (needsApprove && !approveConfirmed)}
-                  className="group flex items-center justify-center gap-2 bg-[#DEDBC8] hover:gap-3 text-black font-medium text-sm pl-5 pr-3 py-3 rounded-full transition-all duration-300 disabled:opacity-30"
-                >
-                  {depositPending || depositConfirming ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />{depositConfirming ? "Confirming on Arc…" : "Waiting for wallet…"}</>
-                  ) : (
-                    <>
-                      <span>{needsApprove && !approveConfirmed ? "Step 2: " : ""}Deposit into Pool</span>
-                      <span className="bg-black rounded-full w-7 h-7 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <ArrowRight className="w-3.5 h-3.5 text-primary" />
-                      </span>
-                    </>
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {depositConfirmed && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[#22c55e] text-sm">
-                      <CheckCircle2 className="w-4 h-4" /> Deposited · shares minted to your wallet
-                      {depositTxHash && (
-                        <a href={`https://testnet.arcscan.app/tx/${depositTxHash}`} target="_blank" rel="noopener noreferrer" className="text-xs underline opacity-60">View tx</a>
+                {isCircle ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCircleDeposit}
+                      disabled={!depositAmount || depositLoading}
+                      className="group flex items-center justify-center gap-2 bg-[#DEDBC8] hover:gap-3 text-black font-medium text-sm pl-5 pr-3 py-3 rounded-full transition-all duration-300 disabled:opacity-30"
+                    >
+                      {circleBusy ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> {circleStep || "Processing…"}</>
+                      ) : (
+                        <>
+                          <span>Deposit into Pool</span>
+                          <span className="bg-black rounded-full w-7 h-7 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <ArrowRight className="w-3.5 h-3.5 text-primary" />
+                          </span>
+                        </>
                       )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    </button>
+                    <p className="text-[10px] text-gray-600 text-center">Circle Wallet signs with your PIN. You will be asked twice: approve, then deposit.</p>
+                    <AnimatePresence>
+                      {circleDepositDone && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[#22c55e] text-sm">
+                          <CheckCircle2 className="w-4 h-4" /> Deposited · shares minted to your wallet
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                ) : (
+                  <>
+                    {/* Step 1: Approve (if needed) */}
+                    {needsApprove && !approveConfirmed && (
+                      <button
+                        type="button"
+                        onClick={handleApprove}
+                        disabled={depositLoading}
+                        className="flex items-center justify-center gap-2 text-sm font-medium px-5 py-3 rounded-full transition-all duration-300 disabled:opacity-50"
+                        style={{ background: "rgba(251,146,60,0.15)", border: "1px solid rgba(251,146,60,0.3)", color: "#fb923c" }}
+                      >
+                        {approvePending || approveConfirming
+                          ? <><Loader2 className="w-4 h-4 animate-spin" /> Approving USDC…</>
+                          : <>Step 1: Approve USDC</>}
+                      </button>
+                    )}
+
+                    {/* Step 2: Deposit */}
+                    <button
+                      type="button"
+                      onClick={handleDeposit}
+                      disabled={!depositAmount || depositLoading || (needsApprove && !approveConfirmed)}
+                      className="group flex items-center justify-center gap-2 bg-[#DEDBC8] hover:gap-3 text-black font-medium text-sm pl-5 pr-3 py-3 rounded-full transition-all duration-300 disabled:opacity-30"
+                    >
+                      {depositPending || depositConfirming ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />{depositConfirming ? "Confirming on Arc…" : "Waiting for wallet…"}</>
+                      ) : (
+                        <>
+                          <span>{needsApprove && !approveConfirmed ? "Step 2: " : ""}Deposit into Pool</span>
+                          <span className="bg-black rounded-full w-7 h-7 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <ArrowRight className="w-3.5 h-3.5 text-primary" />
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    <AnimatePresence>
+                      {depositConfirmed && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[#22c55e] text-sm">
+                          <CheckCircle2 className="w-4 h-4" /> Deposited · shares minted to your wallet
+                          {depositTxHash && (
+                            <a href={`https://testnet.arcscan.app/tx/${depositTxHash}`} target="_blank" rel="noopener noreferrer" className="text-xs underline opacity-60">View tx</a>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -426,22 +531,26 @@ export default function InvestorPage() {
 
                 <TxError error={withdrawError as Error | null} />
 
+                {isCircle && <TxError error={circleError} />}
+
                 <button
                   type="button"
-                  onClick={handleWithdraw}
+                  onClick={isCircle ? handleCircleWithdraw : handleWithdraw}
                   disabled={!withdrawAmount || withdrawLoading}
                   className="flex items-center justify-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-primary font-medium text-sm px-5 py-3 rounded-full transition-all duration-300 disabled:opacity-30 border border-white/10"
                 >
-                  {withdrawPending || withdrawConfirming ? (
+                  {isCircle ? (
+                    circleBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> {circleStep || "Processing…"}</> : "Redeem Shares"
+                  ) : withdrawPending || withdrawConfirming ? (
                     <><Loader2 className="w-4 h-4 animate-spin" />{withdrawConfirming ? "Confirming…" : "Waiting…"}</>
                   ) : "Redeem Shares"}
                 </button>
 
                 <AnimatePresence>
-                  {withdrawConfirmed && (
+                  {(isCircle ? circleWithdrawDone : withdrawConfirmed) && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[#22c55e] text-sm">
                       <CheckCircle2 className="w-4 h-4" /> Withdrawal successful
-                      {withdrawTxHash && (
+                      {!isCircle && withdrawTxHash && (
                         <a href={`https://testnet.arcscan.app/tx/${withdrawTxHash}`} target="_blank" rel="noopener noreferrer" className="text-xs underline opacity-60">View tx</a>
                       )}
                     </motion.div>
@@ -453,8 +562,8 @@ export default function InvestorPage() {
         </GlassCard>
       </motion.div>
 
-      {/* Transfer fLP position (tokenized) */}
-      {myShares > 0 && (
+      {/* Transfer fLP position (tokenized) — wagmi only for now */}
+      {myShares > 0 && !isCircle && (
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6 }}>
           <GlassCard className="p-6 flex flex-col gap-4">
             <div>

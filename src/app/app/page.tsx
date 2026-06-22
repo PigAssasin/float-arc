@@ -1,6 +1,6 @@
 "use client";
-import { useAccount } from "wagmi";
-import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
+import { useAppWallet } from "@/hooks/use-app-wallet";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowUpRight, TrendingUp, DollarSign, ShieldCheck } from "lucide-react";
@@ -63,7 +63,7 @@ const ROLES = [
 ];
 
 export default function AppHomePage() {
-  const { isConnected } = useAccount();
+  const { isConnected } = useAppWallet();
 
   return (
     <div className="relative min-h-[88vh] flex flex-col items-center justify-center py-12 overflow-hidden">
@@ -112,7 +112,7 @@ export default function AppHomePage() {
                 SMEs get paid today. Buyers pay at maturity. Investors earn yield. All on-chain, all in USDC.
               </p>
             </div>
-            <ConnectWalletButton />
+            <ConnectButton />
           </div>
         </motion.div>
 

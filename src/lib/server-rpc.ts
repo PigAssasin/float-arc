@@ -4,6 +4,7 @@
 
 import { createPublicClient, http, defineChain, formatUnits } from "viem";
 import { CONTRACTS, FloatCoreABI, FloatPoolABI, USDC_DECIMALS } from "@/lib/contracts";
+import { gatherUnderwritingData } from "@/lib/underwriting";
 
 const arc = defineChain({
   id: 5042002,
@@ -162,6 +163,22 @@ export const TOOL_SPECS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "assess_invoice_risk",
+      description: "Underwrite an invoice: gather on-chain risk evidence for a buyer (repayment history, defaults, volume, term) plus the connected seller and pool liquidity. Call this when the user asks to assess or underwrite a buyer, judge buyer risk, or decide whether to factor/sell a specific invoice.",
+      parameters: {
+        type: "object",
+        properties: {
+          buyer: { type: "string", description: "Buyer wallet address (0x...). Ask the user for it if not provided." },
+          amount: { type: "number", description: "Invoice amount in USDC." },
+          termDays: { type: "number", description: "Days until the invoice is due (defaults to 30)." },
+        },
+        required: ["buyer"],
+      },
+    },
+  },
 ] as const;
 
 export async function runTool(
@@ -176,6 +193,13 @@ export async function runTool(
       case "get_my_score": return await getMyScore(addr);
       case "get_my_invoices": return await getMyInvoices(addr, args.role as "seller" | "buyer" | undefined);
       case "get_invoice_detail": return await getInvoiceDetail(Number(args.id));
+      case "assess_invoice_risk": {
+        const buyer = args.buyer as string;
+        if (!isAddr(buyer)) return { error: "A valid buyer address (0x...) is required to assess risk." };
+        const termDays = Number(args.termDays) || 30;
+        const dueMs = Date.now() + termDays * 86_400_000;
+        return await gatherUnderwritingData(buyer, addr, Number(args.amount) || 0, dueMs);
+      }
       default: return { error: `Unknown tool: ${name}` };
     }
   } catch (e) {

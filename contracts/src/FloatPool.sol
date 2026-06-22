@@ -133,6 +133,15 @@ contract FloatPool is ERC20, ReentrancyGuard, Ownable {
         usdc.safeTransfer(to, amount);
     }
 
+    /// v6: pay out from investor assets (seller residual or protocol fee at settlement).
+    /// Guarded by availableLiquidity so reserved buckets (collateral/stake/insurance) are untouched.
+    function payTo(address to, uint256 amount) external nonReentrant onlyCore {
+        if (amount == 0) return;
+        uint256 liquid = availableLiquidity();
+        if (amount > liquid) revert InsufficientLiquidity(amount, liquid);
+        usdc.safeTransfer(to, amount);
+    }
+
     // ─── Core-only: buyer collateral ──────────────────────────────────────────
 
     /// Record buyer collateral already transferred into pool by FloatCore.

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useAccount } from "wagmi";
 import { useReadContracts } from "wagmi";
+import { useAppWallet } from "@/hooks/use-app-wallet";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Send, Sparkles, ChevronDown } from "lucide-react";
@@ -49,7 +49,7 @@ export function FloatAssistant() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useAppWallet();
 
   const role: ChatContext["role"] = pathname.includes("/seller")
     ? "seller"
@@ -77,6 +77,12 @@ export function FloatAssistant() {
         functionName: "sellerScore",
         args: address ? [address] : undefined,
       } as const,
+      {
+        address: CONTRACTS.FLOAT_CORE,
+        abi: FloatCoreABI,
+        functionName: "sellerAdvanceBps",
+        args: address ? [address] : undefined,
+      } as const,
     ],
     query: { enabled: isConnected && !!address },
   });
@@ -88,15 +94,16 @@ export function FloatAssistant() {
     const avail = poolData?.[1]?.status === "success" ? (poolData[1].result as bigint) : undefined;
     const insurance = poolData?.[2]?.status === "success" ? (poolData[2].result as bigint) : undefined;
     const myShares = poolData?.[3]?.status === "success" ? (poolData[3].result as bigint) : undefined;
-    const score = poolData?.[4]?.status === "success" ? Number(poolData[4].result as bigint) : undefined;
+    // Only meaningful for sellers; skip for buyer/investor to avoid noise
+    const score = role === "seller" && poolData?.[4]?.status === "success" ? Number(poolData[4].result as bigint) : undefined;
+    // Use on-chain bps (sellerAdvanceBps) so new sellers get 75% not 80%
+    const advanceBps = role === "seller" && poolData?.[5]?.status === "success" ? Number(poolData[5].result as bigint) : undefined;
 
-    const advanceRate =
-      score !== undefined
-        ? score >= 86 ? 88 : score >= 71 ? 84 : score >= 41 ? 80 : 75
-        : undefined;
+    const advanceRate = advanceBps !== undefined ? advanceBps / 100 : undefined;
+    // v6 stake by tier: 2/3/4/5
     const stakeRate =
-      score !== undefined
-        ? score >= 86 ? 5 : score >= 71 ? 6 : score >= 41 ? 8 : 10
+      advanceBps !== undefined
+        ? advanceBps >= 9000 ? 2 : advanceBps >= 8800 ? 3 : advanceBps >= 8500 ? 4 : 5
         : undefined;
 
     const STATUS_LABELS = ["Pending Approval", "Pending Collateral", "Funded", "Paid", "Defaulted", "Cancelled"];
@@ -240,9 +247,9 @@ export function FloatAssistant() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.96 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed bottom-24 right-6 z-50 w-[360px] rounded-2xl overflow-hidden flex flex-col"
+            className="fixed bottom-24 right-4 left-4 sm:left-auto sm:right-6 z-50 w-auto sm:w-[360px] rounded-2xl overflow-hidden flex flex-col"
             style={{
-              height: "480px",
+              height: "min(480px, 70vh)",
               background: "#0a0a0a",
               border: "1px solid rgba(222,219,200,0.12)",
               boxShadow: "0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(222,219,200,0.05)",

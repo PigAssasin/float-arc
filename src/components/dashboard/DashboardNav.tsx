@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useState } from "react";
 
 const NAV_LINKS = [
@@ -17,8 +17,8 @@ export function DashboardNav() {
 
   return (
     <div className="w-full bg-black flex justify-center pt-0 sticky top-0 z-50">
-      <nav className="bg-black rounded-b-2xl md:rounded-b-3xl shadow-xl border-b border-white/5 px-4 py-3 md:px-8">
-        <div className="flex items-center gap-4 sm:gap-8 md:gap-12 lg:gap-14 whitespace-nowrap">
+      <nav className="bg-black rounded-b-2xl md:rounded-b-3xl shadow-xl border-b border-white/5 px-3 py-3 md:px-8 max-w-full">
+        <div className="flex items-center gap-3 sm:gap-8 md:gap-12 lg:gap-14 whitespace-nowrap overflow-x-auto no-scrollbar">
 
           {/* Logo */}
           <Link
@@ -62,7 +62,13 @@ export function DashboardNav() {
           <span className="w-px h-3 bg-white/10" />
 
           {/* Connect wallet */}
-          <ConnectWalletButton />
+          <div className="shrink-0">
+            <ConnectButton
+              accountStatus={{ smallScreen: "avatar", largeScreen: "address" }}
+              chainStatus={{ smallScreen: "none", largeScreen: "icon" }}
+              showBalance={false}
+            />
+          </div>
         </div>
       </nav>
     </div>

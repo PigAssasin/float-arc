@@ -37,7 +37,7 @@ export function useMyInvoices(address: `0x${string}` | undefined, role: "seller"
     args: [BigInt(i)] as [bigint],
   }));
 
-  const { data: results, isLoading } = useReadContracts({
+  const { data: results, isLoading, refetch } = useReadContracts({
     contracts,
     query: { enabled: count > 0 && !!CONTRACTS.FLOAT_CORE },
   });
@@ -64,5 +64,5 @@ export function useMyInvoices(address: `0x${string}` | undefined, role: "seller"
     invoices.push({ id: BigInt(i), ...inv });
   });
 
-  return { invoices, isLoading, total: count };
+  return { invoices, isLoading, total: count, refetch };
 }
