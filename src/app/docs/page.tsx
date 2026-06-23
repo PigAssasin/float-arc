@@ -36,11 +36,11 @@ const FAQ = [
   },
   {
     q: "When does the seller receive the advance?",
-    a: "The advance is not sent at invoice creation. It is sent after two buyer actions: first the buyer approves the invoice on-chain, then the buyer locks the required collateral. Both must happen before the advance is disbursed. This protects the pool from fraudulent invoices.",
+    a: "The advance is not sent at invoice creation. It is sent after the buyer approves the invoice and chooses a funding path. The buyer can either lock collateral so the pool funds the advance, or fund the advance directly through buyer-financed mode.",
   },
   {
     q: "What is buyer collateral and why is it required?",
-    a: "Buyer collateral is a USDC deposit locked in FloatPool when the buyer confirms the invoice. It acts as security for the pool. If the buyer defaults, the collateral is slashed to partially offset the advance loss. Collateral is returned in full when the buyer pays the invoice. The amount is calculated as max(buyer tier rate, 100% minus advance rate).",
+    a: "Buyer collateral is a USDC deposit locked in FloatPool for standard pool-financed invoices. It protects the pool if the buyer defaults. Collateral is returned in full when the buyer pays the invoice. Buyer-financed invoices do not need this collateral because the buyer funds the advance directly.",
   },
   {
     q: "What happens if the buyer does not pay?",
@@ -48,11 +48,11 @@ const FAQ = [
   },
   {
     q: "How is the advance rate calculated?",
-    a: "Each seller has an on-chain score from 0 to 100. New sellers start at 50 and receive an 85% advance rate. The score is the ratio of paid invoices to total invoices, with paid-count gates for higher tiers. Scores improve as the seller builds repayment history, unlocking 88% and 90% advance rates over time.",
+    a: "Each seller has an on-chain score from 0 to 100. New sellers receive the conservative 80% advance rate until they build enough paid invoice history. Higher tiers require both a strong paid ratio and a minimum number of paid invoices.",
   },
   {
     q: "Is there an early repayment discount?",
-    a: "No. In v6a there is no early-repayment discount. The buyer repays the invoice face value, while the seller's cost is an explicit term-scaled fee that was calculated when the invoice was created.",
+    a: "Standard pool-financed invoices do not have an early repayment discount. Buyer-financed invoices are different: the buyer funds the advance upfront and keeps 75% of the invoice fee as a discount at settlement.",
   },
   {
     q: "How do investors earn yield?",
@@ -60,7 +60,7 @@ const FAQ = [
   },
   {
     q: "Can investors withdraw at any time?",
-    a: "Yes. Enter the number of shares to redeem and call withdraw(). The contract converts shares to USDC at the current share value. Withdrawals are limited to available liquidity — USDC deployed as advances or held as collateral cannot be withdrawn until invoices settle.",
+    a: "Yes. Enter the number of shares to redeem and call withdraw(). The contract converts shares to USDC at the current share value. Withdrawals are limited to available liquidity. USDC deployed as advances or held as collateral cannot be withdrawn until invoices settle.",
   },
   {
     q: "Are the contracts audited?",
@@ -132,7 +132,7 @@ export default function DocsPage() {
               {
                 step: "02", who: "Buyer",
                 action: "Approve or reject",
-                detail: "The buyer receives the invoice and reviews the terms. They call approveInvoice(id) to confirm the invoice is legitimate, or rejectInvoice(id) to cancel it. Approval requires no USDC — it is only a signature. Status: PENDING_COLLATERAL.",
+                detail: "The buyer receives the invoice and reviews the terms. They call approveInvoice(id) to confirm the invoice is legitimate, or rejectInvoice(id) to cancel it. Approval requires no USDC. It is only a signature. Status: PENDING_COLLATERAL.",
               },
               {
                 step: "03", who: "Buyer",
@@ -194,7 +194,7 @@ export default function DocsPage() {
                   { n: "1", t: "Connect wallet", d: "Use MetaMask or create a Circle Wallet. Make sure you are on Arc Testnet (Chain ID 5042002)." },
                   { n: "2", t: "Go to Seller dashboard", d: "Navigate to /app/seller. Your current credit score and available pool liquidity are shown at the top." },
                   { n: "3", t: "Fill in invoice details", d: "Enter the buyer's wallet address, the invoice amount in USDC, and the payment due date. Float previews your advance amount and the buyer's required collateral in real-time." },
-                  { n: "4", t: "Submit", d: "Click Create Invoice. The transaction calls createInvoice() on FloatCore and stores the invoice on-chain. The invoice is now PENDING_APPROVAL — no funds move yet. The advance is sent only after the buyer approves and locks collateral." },
+                  { n: "4", t: "Submit", d: "Click Create Invoice. The transaction calls createInvoice() on FloatCore and stores the invoice on-chain. The invoice is now PENDING_APPROVAL. No funds move yet. The advance is sent only after the buyer approves and chooses a funding path." },
                   { n: "5", t: "Track your invoices", d: "Your invoices appear below the form with live status. PENDING_APPROVAL means waiting for buyer. FUNDED means the advance has been sent to your wallet. PAID means the invoice is settled." },
                 ].map((item) => (
                   <div key={item.n} className="flex gap-4 px-6 py-4">
@@ -219,9 +219,9 @@ export default function DocsPage() {
                   { n: "1", t: "Connect wallet", d: "Connect the wallet address that was specified by the seller as buyer. Float identifies invoices by on-chain buyer address." },
                   { n: "2", t: "Go to Buyer dashboard", d: "Navigate to /app/buyer. Invoices are grouped by action required: Pending Approval, Needs Collateral, Active, and History." },
                   { n: "3", t: "Approve or reject invoice", d: "Review the invoice terms: seller address, amount, advance sent to seller, collateral required from you, and due date. Call approveInvoice(id) to confirm or rejectInvoice(id) to cancel. No USDC needed yet." },
-                  { n: "4", t: "Lock collateral", d: "After approving, Float asks you to lock USDC as collateral. Step 1: approve FloatCore for the collateral amount. Step 2: call lockCollateral(id). This triggers the advance to the seller in the same transaction." },
+                  { n: "4", t: "Choose funding path", d: "After approving, choose standard collateral mode or buyer-financed mode. Standard mode calls lockCollateral(id). Buyer-financed mode calls financeAsBuyer(id)." },
                   { n: "5", t: "Pay at due date", d: "When the invoice is due, Step 1: approve FloatCore for the full invoice amount. Step 2: call payInvoice(id). The full amount goes to the pool and your collateral is returned to your wallet in the same transaction." },
-                  { n: "6", t: "Repay invoice", d: "Pay the full invoice face value at or before the due date. v6a has no early-repayment discount; the seller's cost is the explicit fee calculated at invoice creation." },
+                  { n: "6", t: "Repay invoice", d: "Pay at or before the due date. Standard mode repays the invoice face value. Buyer-financed mode pays the reduced settlement amount after the buyer discount." },
                 ].map((item) => (
                   <div key={item.n} className="flex gap-4 px-6 py-4">
                     <span className="w-5 h-5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-mono flex items-center justify-center shrink-0 mt-0.5">{item.n}</span>
@@ -545,7 +545,7 @@ export default function DocsPage() {
           <Card className="divide-y divide-white/[0.05]">
             {[
               { term: "Invoice factoring", def: "The practice of selling an unpaid invoice to a third party at a discount in exchange for immediate cash. Float implements this on-chain with USDC." },
-              { term: "Advance rate", def: "The percentage of the invoice face value advanced upfront. In Float v6a, this ranges from 80% to 90% depending on the seller's credit score tier and paid-count gates." },
+              { term: "Advance rate", def: "The percentage of the invoice face value advanced upfront. In Float, this ranges from 80% to 90% depending on the seller's credit score tier and paid-count gates." },
               { term: "Recourse model", def: "A factoring arrangement where the seller remains liable if the buyer fails to pay. The opposite is non-recourse, where the factor absorbs the loss." },
               { term: "Share value", def: "totalAssets divided by totalShares in FloatPool. This number starts at 1.0 USDC per share and increases as repayments accumulate. It never decreases on repayment." },
               { term: "Credit score", def: "A 0 to 100 integer stored on-chain per seller, computed as paidCount * 100 / totalCount. Determines the advance tier applied to new invoices." },
@@ -616,9 +616,9 @@ export default function DocsPage() {
                 {[
                   { role: "Investor", step: "Deposit USDC into the pool to fund the liquidity buffer" },
                   { role: "Seller", step: "Create an invoice with a buyer address and due date" },
-                  { role: "Buyer", step: "Approve the invoice, then lock collateral to release the advance" },
+                  { role: "Buyer", step: "Approve the invoice, then choose collateral mode or buyer-financed mode" },
                   { role: "Buyer", step: "Pay the full invoice amount at or before the due date" },
-                  { role: "Investor", step: "Withdraw anytime — share value increases as invoices are repaid" },
+                  { role: "Investor", step: "Withdraw anytime. Share value increases as invoices are repaid" },
                 ].map((row, i) => (
                   <div key={i} className="flex items-start gap-3">
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-gray-500 border border-white/[0.07] shrink-0 mt-0.5 whitespace-nowrap">{row.role}</span>

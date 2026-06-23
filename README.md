@@ -6,10 +6,10 @@ Float is a decentralized invoice factoring protocol for SME working capital on A
 Sellers create invoices and receive USDC upfront. Buyers repay at maturity. Investors provide
 pool liquidity and earn fee yield through transferable `fLP` shares.
 
-The current live version is **v6b**. It adds **Buyer Finance**, a second funding mode where the
-buyer can fund the seller's advance directly and keep 75% of the invoice fee as a discount. This
-lets invoices settle even when pool liquidity is limited, while keeping LP capital out of that
-invoice's default risk.
+The live contracts support two funding paths. In the standard path, the pool advances capital
+after the buyer locks collateral. In the buyer-financed path, the buyer funds the seller's advance
+directly and keeps 75% of the invoice fee as a discount. That second path lets an invoice move
+forward even when pool liquidity is limited, without putting LP capital at risk for that invoice.
 
 **Live demo:** [floatsme.xyz](https://floatsme.xyz)
 
@@ -19,7 +19,7 @@ invoice's default risk.
 
 - **Production frontend:** deployed on Vercel at [floatsme.xyz](https://floatsme.xyz)
 - **Network:** Arc Testnet, chain ID `5042002`
-- **Contracts:** v6b deployed and wired into frontend
+- **Contracts:** live contracts deployed and wired into frontend
 - **Tests:** 29 passing Hardhat tests
 - **Build:** Next.js production build passes
 
@@ -69,9 +69,9 @@ Best for:
 - Buyers who prefer collateral instead of funding the seller upfront.
 - LPs who want fee yield from invoice financing demand.
 
-### Mode 2: Buyer Finance, v6b
+### Mode 2: Buyer Finance
 
-This is the new v6b path.
+This path lets the buyer fund the advance directly.
 
 1. Seller creates an invoice.
 2. Buyer approves it.
@@ -86,8 +86,8 @@ Best for:
 - Invoices that should not depend on pool liquidity.
 - Safer demos where LP capital should not take risk.
 
-Key property: in Buyer Finance mode, default creates **zero LP loss** because the buyer already
-funded the advance.
+In Buyer Finance mode, a default creates **zero LP loss** because the buyer already funded the
+advance.
 
 ---
 
@@ -164,7 +164,7 @@ Important functions:
 - `createInvoice(buyer, amount, dueDate)` - seller creates an invoice
 - `approveInvoice(id)` - buyer approves the invoice
 - `lockCollateral(id)` - buyer uses standard pool-financed mode
-- `financeAsBuyer(id)` - buyer uses v6b buyer-financed mode
+- `financeAsBuyer(id)` - buyer uses buyer-financed mode
 - `payInvoice(id)` - buyer settles the invoice
 - `payPartial(id, amount)` - buyer makes installments in pool-financed mode only
 - `markDefault(id)` - anyone can mark default after grace period
@@ -214,7 +214,7 @@ contracts/
     FloatCore.sol  Invoice lifecycle and settlement logic
     FloatPool.sol  Liquidity pool and fLP shares
   test/
-    Float.test.js  v6 and v6b contract tests
+    Float.test.js  contract tests
   scripts/
     deploy.js      Arc Testnet deployment
     seed.js        Pool seeding helper
@@ -290,7 +290,7 @@ Key integrations:
 
 Highlights:
 
-- v6b Buyer Finance mode
+- Buyer Finance mode
 - Tokenized LP shares with `fLP`
 - Fixed, public fee schedule
 - Residual repayment to sellers

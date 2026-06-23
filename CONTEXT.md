@@ -9,7 +9,7 @@ investors earn transparent fee yield through an on-chain liquidity pool.
 
 ## Live State
 
-- Version: v6b
+- Version: current live contracts
 - Production URL: https://floatsme.xyz
 - Network: Arc Testnet
 - Chain ID: `5042002`
@@ -30,7 +30,7 @@ Float has three user roles:
 The seller's true cost is the invoice fee. The seller receives the advance first, then receives the
 residual at settlement.
 
-## v6b Funding Modes
+## Funding modes
 
 ### Mode 1: Pool Finance
 
@@ -84,7 +84,7 @@ Fee cap: 8% of invoice face value.
 - `README.md` - public GitHub overview.
 - `handoff.md` - short handoff for the next agent.
 - `docs/v6-plan.md` - detailed economic plan and checklist.
-- `contracts/src/FloatCore.sol` - invoice lifecycle and v6b mode logic.
+- `contracts/src/FloatCore.sol` - invoice lifecycle and buyer-financed mode logic.
 - `contracts/src/FloatPool.sol` - liquidity pool and fLP shares.
 - `contracts/test/Float.test.js` - contract test suite.
 - `src/lib/contracts.ts` - deployed addresses and ABI.
@@ -99,7 +99,7 @@ Fee cap: 8% of invoice face value.
 - Chat with the user in Vietnamese.
 - Do not commit `.env` files, private keys, mnemonics, or secrets.
 - Use `viem` and wagmi patterns already present in the repo.
-- Treat v6b addresses above as the current deployed contracts.
+- Treat the addresses above as the current deployed contracts.
 
 ## Useful Commands
 

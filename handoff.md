@@ -4,7 +4,7 @@ This is the short project handoff for the next AI assistant or developer.
 
 ## Status
 
-Float is live with **v6b**.
+Float is live with the current contracts.
 
 - Production: https://floatsme.xyz
 - Network: Arc Testnet, chain ID `5042002`
@@ -14,9 +14,9 @@ Float is live with **v6b**.
 - Tests: 29 passing Hardhat tests
 - Frontend: Next.js production build passes
 
-## What v6b Adds
+## What the current contracts support
 
-v6b adds **Buyer Finance**, also called mode 2.
+The current contracts support two invoice funding paths.
 
 Mode 1, Pool Finance:
 
@@ -37,9 +37,9 @@ Mode 2, Buyer Finance:
 
 - `README.md` - GitHub-facing project overview.
 - `docs/v6-plan.md` - full economic plan and implementation checklist.
-- `contracts/src/FloatCore.sol` - invoice lifecycle and v6b mode logic.
+- `contracts/src/FloatCore.sol` - invoice lifecycle and buyer-financed mode logic.
 - `contracts/src/FloatPool.sol` - pool accounting, fLP shares, collateral, stakes, insurance.
-- `contracts/test/Float.test.js` - v6 and v6b test coverage.
+- `contracts/test/Float.test.js` - contract test coverage.
 - `src/lib/contracts.ts` - deployed addresses and ABI used by the frontend.
 - `src/app/app/buyer/page.tsx` - buyer dashboard, collateral mode, buyer finance mode, repayment.
 - `src/app/api/circle/execute-contract/route.ts` - Circle contract execution allowlist.
@@ -48,11 +48,11 @@ Mode 2, Buyer Finance:
 
 Completed:
 
-- v6b contracts deployed to Arc Testnet.
+- Current contracts deployed to Arc Testnet.
 - Pool seeded after deployment.
-- Frontend wired to v6b addresses.
+- Frontend wired to the live contract addresses.
 - Vercel production deployed.
-- GitHub updated with v6b release commit.
+- GitHub updated with the live contract release.
 - README and handoff docs rewritten for clarity.
 
 Optional next work:

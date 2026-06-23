@@ -1,310 +1,160 @@
-# Float — Submission Document
-## The Stablecoin Commerce Stack Challenge (Ignyte x Circle x Arc)
-## Track 2: SME Trade Finance & Working Capital
+# Float submission document
 
----
+## Project
 
-## Project Title
 **Float**
 
-## Tagline
-*Float your invoices. SMEs get paid today, not in 90 days.*
+Tagline: Float your invoices. SMEs get paid today, not in 90 days.
 
----
+Track: SME Trade Finance and Working Capital
 
-## Description
+Live app: https://floatsme.xyz
 
-Float is an on-chain invoice factoring protocol that eliminates the working capital gap for small and medium enterprises (SMEs).
+GitHub: https://github.com/PigAssasin/float-arc
 
-In traditional trade finance, an SME invoices a buyer and then waits 30 to 90 days to be paid. That gap — often tens of thousands of dollars — forces SMEs to take on debt, delay hiring, and miss growth opportunities. Float solves this by letting sellers receive 80 to 90% of the invoice value immediately in USDC, then returning the residual at settlement. The seller's only cost is a fixed, public fee schedule based on the buyer's tier and term. A decentralized pool of investors earns the fee yield, split across protocol, insurance, and LPs.
+## Summary
 
-The entire protocol runs on Arc Testnet with USDC as the settlement currency. Circle's User-Controlled Wallet SDK is integrated as a first-class connection option, so any SME owner can participate without needing MetaMask, a seed phrase, or any prior crypto experience — just a PIN.
+Float is an on-chain invoice financing app for small and medium businesses. A seller creates an
+invoice, the buyer approves it, and the seller receives a USDC advance before the invoice is due.
+The buyer repays later. Investors can deposit USDC into FloatPool and earn fee yield through
+transferable `fLP` shares.
 
----
+The current contracts support two funding paths:
 
-## Track
-**Track 2 — SME Trade Finance & Working Capital**
+- Standard pool finance: the buyer locks collateral, the pool funds the seller, and LPs earn 75%
+  of the invoice fee.
+- Buyer-financed mode: the buyer funds the seller's advance directly and keeps 75% of the fee as
+  a discount. Pool capital is not exposed to that invoice.
 
----
+## Why it matters
 
-## Circle Account Email
-coinlistx100@gmail.com
+SMEs often wait 30 to 90 days to get paid. That delay can block payroll, inventory, hiring, and
+growth. Traditional invoice factoring is slow and paperwork heavy. Float turns the flow into a
+transparent on-chain process with predictable pricing and fast USDC settlement.
 
----
-
-## Products Used
-
-### Circle — User-Controlled Wallets (W3S SDK)
-- SDK: `@circle-fin/w3s-pw-web-sdk`
-- Wallet type: User-Controlled, PIN-secured EOA (no seed phrase)
-- App ID: `f06cb713-a2a3-57d2-9662-13607ec5f12f`
-- Integration:
-  - `POST /v1/w3s/users` — idempotent user creation
-  - `POST /v1/w3s/users/token` — session tokens (userToken + encryptionKey)
-  - `POST /v1/w3s/user/wallets` — create wallet with PIN challenge
-  - `GET /v1/w3s/wallets` — fetch wallet address
-  - `sdk.execute(challengeId, callback)` — PIN UI embedded in app
-- Use case: SME owners connect via PIN without needing a browser wallet extension. Their wallet address is used for all on-chain reads (invoices, credit score, pool stats).
-
-### Circle — USDC
-- All advances, collateral, stakes, repayments, and pool deposits are denominated in USDC
-- Native USDC on Arc Testnet: `0x3600000000000000000000000000000000000000`
-- No wrapping or bridging required — users interact directly with USDC
+## Products used
 
 ### Arc Testnet
-- Chain ID: 5042002
-- USDC as native gas token (no ETH needed for gas — critical for SME UX)
-- All Float smart contracts deployed on Arc Testnet
-- Full EVM compatibility — standard Hardhat/wagmi/viem tooling works out of the box
 
----
+- Chain ID: `5042002`
+- USDC is the settlement asset and gas token.
+- Float runs only on Arc Testnet.
+- Standard EVM tooling works: Solidity, Hardhat, viem, and wagmi.
 
-## Working MVP
+### Circle wallets
 
-**Live application:** https://floatsme.xyz
-**GitHub repository:** https://github.com/PigAssasin/float-arc
+- SDK: `@circle-fin/w3s-pw-web-sdk`
+- Wallet type: user-controlled, PIN-secured EOA
+- App ID: `f06cb713-a2a3-57d2-9662-13607ec5f12f`
+- Integration routes:
+  - `POST /api/circle/init-user`
+  - `GET /api/circle/wallets`
+  - `POST /api/circle/create-wallet`
+  - `POST /api/circle/execute-contract`
 
-### Deployed Contracts (Arc Testnet)
+### USDC
+
+All invoice amounts, advances, collateral, repayments, investor deposits, and withdrawals use
+Arc Testnet USDC:
+
+`0x3600000000000000000000000000000000000000`
+
+## Live contracts
 
 | Contract | Address |
 |----------|---------|
-| FloatCore v6a | `0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD` |
-| FloatPool v6a (fLP) | `0x866Af692C71D9e1d191be551981c546870413484` |
-| USDC (Arc native) | `0x3600000000000000000000000000000000000000` |
+| FloatCore | `0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637` |
+| FloatPool, ERC20 `fLP` | `0xCaC5c72a870fB989093e68F98027aa0639a4Bf77` |
+| USDC | `0x3600000000000000000000000000000000000000` |
 
-### MVP Features
-- Seller dashboard: create invoices, view credit score and advance tier, cancel timed-out invoices
-- Buyer dashboard: approve or reject invoices, lock collateral, pay invoices (full or partial), trigger defaults
-- Investor dashboard: deposit USDC into pool, withdraw, view fLP balance and real-time share value
-- Float Assistant: AI chatbot (DeepSeek V3) with 4 live on-chain tool calls
-- Circle Wallet: connect via PIN, view all dashboard data without MetaMask
+## User flows
 
----
+### Seller
 
-## How It Works
+1. Connect wallet.
+2. Enter buyer address, invoice amount, and due date.
+3. Create invoice.
+4. Wait for buyer approval and funding.
+5. Receive the advance.
+6. Receive the residual when the buyer settles.
 
-### Three roles, one protocol
+### Buyer
 
-**Seller (SME)**
-Creates an invoice naming a buyer and the invoice amount. Based on their credit tier, they receive an immediate USDC advance (80-90% of face value). A stake (2-5%) is withheld from the advance as recourse collateral and returned when the buyer pays. At settlement the seller also receives the residual amount (face minus advance minus fee).
+1. Connect the wallet named by the seller.
+2. Review the invoice.
+3. Approve or reject it.
+4. Choose standard collateral mode or buyer-financed mode.
+5. Repay at or before the due date.
 
-**Buyer**
-Receives the invoice for approval. After approving, locks a collateral deposit (8-25% of invoice, depending on tier and verification state). At due date, pays the remaining face value. A 7-day grace period applies before default can be triggered.
+### Investor
 
-**Investor**
-Deposits USDC into the liquidity pool and receives fLP (Float LP) ERC20 tokens. As invoice fees accrue, the share value of fLP rises. Investors can transfer or redeem fLP at any time.
+1. Connect wallet.
+2. Deposit USDC into FloatPool.
+3. Receive `fLP` shares.
+4. Earn fee yield when pool-financed invoices settle.
+5. Withdraw by redeeming `fLP` for USDC.
 
-### Advance Rate Tiers (on-chain, not manual)
+## Economics
 
-| Tier | Credit Score | Advance | Seller Stake | Buyer Collateral |
-|------|-------------|---------|-------------|-----------------|
-| New | 0-40 or no history | 80% | 5% | 25% |
+Seller advance tiers:
+
+| Tier | Score | Advance | Seller stake | Verified buyer collateral |
+|------|-------|---------|--------------|---------------------------|
+| New | 0-40 | 80% | 5% | 25% |
 | Fair | 41-70 | 85% | 4% | 18% |
 | Good | 71-85 | 88% | 3% | 12% |
 | Excellent | 86-100 | 90% | 2% | 8% |
 
-Tier is determined by `sellerAdvanceBps()` on-chain. New sellers (no invoice history) always receive the conservative New tier (80%), regardless of their raw score — this prevents Sybil attacks where someone creates many small invoices to inflate their score.
+Buyer fee schedule:
 
-### Default Protection (Three Layers)
+| Buyer tier | Fee per 30 days |
+|------------|-----------------|
+| New | 3.0% |
+| Fair | 2.2% |
+| Good | 1.6% |
+| Excellent | 1.2% |
 
-When a buyer defaults, losses are covered in this order:
-1. Buyer collateral covers first
-2. Seller stake covers second
-3. Protocol insurance reserve, funded from 15% of every fee and capped at 10% of investor assets, covers the remainder
-4. LP principal is only touched if all three layers are exhausted
+Fee cap: 8% of invoice face value.
 
-### Credit Score Formula
-```
-sellerScore = (sellerPaidCount / sellerTotalCount) * 100
-```
-Score improves with each on-time repayment. Score drops on default. Stored on-chain, fully transparent.
+## Safety model
 
----
+- Seller stake is withheld from the advance in pool-financed mode.
+- Buyer collateral protects pool-financed invoices.
+- Insurance reserve receives 15% of each fee.
+- Per-seller and per-buyer exposure caps limit concentration risk.
+- Strict collateral mode applies to unverified buyers.
+- Buyer-financed invoices create zero LP loss because the buyer funds the advance directly.
 
-## Architecture
-
-```
-Float Frontend (Next.js 14 App Router + TypeScript)
-=========================================================
-
-Seller Dashboard  |  Buyer Dashboard  |  Investor Dashboard
-     |                    |                    |
-     +--------------------+--------------------+
-                          |
-                   useAppWallet()
-            (wagmi v2 + Circle W3S SDK)
-                          |
-          +---------------+----------------+
-          |                                |
-    wagmi v2 connectors             Circle W3S SDK
-    (MetaMask, OKX,                 PIN-secured EOA
-     EIP-6963 wallets)              No extension needed
-          |                                |
-          +---------------+----------------+
-                          |
-                 Float Assistant
-               (DeepSeek V3 AI, SSE)
-            4 live on-chain tool calls:
-            get_pool_stats | get_my_score
-            get_my_invoices | get_invoice_detail
-                          |
-                          | RPC / Contract Calls
-                          |
-                          v
-Arc Testnet (Chain ID: 5042002)
-=========================================================
-
-   FloatCore v6a                     FloatPool v6a (ERC20 fLP)
-   -----------                       -------------------------
-   createInvoice()                   deposit()
-   approveInvoice()                  withdraw()
-   rejectInvoice()                   totalAssets()
-   lockCollateral()                  shareValue()       (1e18 scale)
-   payInvoice()                      availableLiquidity()
-   payPartial()                      insuranceReserve()
-   markDefault()                     shares(address)    (fLP balance)
-   cancelApprovalTimeout()           ERC20 transfer/approve
-   cancelCollateralTimeout()
-   sellerScore(address)
-   sellerAdvanceBps(address)         sellerStakeBps(address)
-   buyerFeeBpsPer30d(address)        feeBpsForTerm(address, termSeconds)
-   USDC (Arc native)
-   invoiceCount()                    0x3600000000000000000000000000000000000000
-   getInvoice(id)
-```
-
-### Stack
+## Technical stack
 
 | Layer | Technology |
-|-------|-----------|
-| Blockchain | Arc Testnet (Chain ID 5042002), USDC native gas |
-| Smart contracts | Solidity 0.8.20, Hardhat, OpenZeppelin |
-| Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS |
-| Wallet - EOA | wagmi v2 + viem, EIP-6963 wallet detection |
-| Wallet - Circle | @circle-fin/w3s-pw-web-sdk, PIN-secured EOA |
-| AI assistant | DeepSeek V3, Server-Sent Events (SSE), Edge runtime |
-| Hosting | Vercel (floatsme.xyz / float-arc.vercel.app) |
-| Animations | Framer Motion |
+|-------|------------|
+| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Contracts | Solidity 0.8.20, Hardhat, OpenZeppelin |
+| Wallets | wagmi v2, viem, Circle Wallets SDK |
+| AI assistant | DeepSeek V3 with live on-chain reads |
+| Hosting | Vercel |
 
----
+## What is working now
 
-## Smart Contract Security
+- Seller dashboard
+- Buyer dashboard
+- Investor dashboard
+- Standard pool-financed invoices
+- Buyer-financed invoices
+- Partial repayments for pool-financed invoices
+- fLP deposits, withdrawals, and share value reads
+- Circle wallet connection
+- AI assistant with live pool, score, and invoice context
+- Production deployment at https://floatsme.xyz
 
-- **ReentrancyGuard** on all external state-changing functions
-- **Checks-Effects-Interactions** pattern throughout
-- **Custom errors** (gas efficient: `error ZeroAmount()`, `error InvoiceTooLarge(...)`, etc.)
-- **MAX_INVOICE_BPS = 2000** — single invoice advance capped at 20% of available liquidity to prevent pool drain
-- **Inflation guard** — 1,000 dead shares minted on pool initialization (prevents ERC4626-style inflation attack)
-- **Bounded insurance** — insurance reserve capped at 10% of investor assets
-- **Anti-Sybil hooks** — `verificationRequired` flag (OFF by default for testnet open access), plus per-seller and per-buyer exposure caps
-- **One-time core registration** — `setAuthorizedCore()` is one-way, preventing unauthorized pool access upgrades
-- **APPROVAL_TIMEOUT = 72h** and **COLLATERAL_TIMEOUT = 48h** — stale invoices can be cancelled by seller, returning them to a clean state
+## Test status
 
----
+- Hardhat contract tests: 29 passing
+- Next.js production build: passing
 
-## Circle Integration — Technical Detail
+## Notes
 
-### Connection Flow
-```
-User clicks "Circle Wallet"
-        |
-POST /api/circle/init-user
-    POST /v1/w3s/users   (idempotent — 409 = already exists, not an error)
-    POST /v1/w3s/users/token  -> { userToken, encryptionKey }
-        |
-GET /api/circle/wallets
-    GET /v1/w3s/wallets  (with X-User-Token header)
-        |
-    Wallet exists?
-    YES -> return address, mark as connected
-    NO  ->
-        POST /api/circle/create-wallet
-            POST /v1/w3s/user/wallets -> { challengeId }
-        sdk.execute(challengeId, callback)  -> PIN challenge UI
-        GET /v1/w3s/wallets -> fetch address after PIN setup
-        |
-Dashboard reads active using Circle address
-```
-
-### Why Circle Wallets for SMEs
-The key insight: most SME owners are not crypto-native. Requiring MetaMask creates a hard drop-off point. Circle's W3S SDK provides:
-- Self-custodied wallet (user controls keys via PIN)
-- No browser extension installation
-- No seed phrase to manage or lose
-- Native mobile-friendly PIN challenge UI
-- Address reusability — same wallet across sessions via sessionStorage userId
-
----
-
-## Documentation
-
-### For Sellers
-1. Connect wallet (MetaMask or Circle Wallet)
-2. Go to Seller Dashboard
-3. Enter buyer's wallet address, invoice amount (USDC), and payment due date
-4. Submit — the invoice is sent to the buyer for approval on-chain
-5. Once buyer approves and locks collateral, you receive your advance automatically
-6. Your credit score improves with each invoice paid on time
-
-### For Buyers
-1. Connect wallet (must be the exact address the seller named)
-2. Go to Buyer Dashboard — pending invoices appear automatically
-3. Review: invoice amount, your required collateral, due date
-4. Approve and lock collateral (two transactions: approve USDC + lockCollateral)
-5. Pay the invoice before the due date (full or partial payments accepted)
-6. Your collateral is returned automatically on payment
-
-### For Investors
-1. Connect wallet
-2. Go to Investor Dashboard
-3. Enter USDC amount and deposit (two steps: approve USDC, then deposit)
-4. Receive fLP tokens representing your pool share
-5. Share value increases as invoice fees accrue — no manual claiming needed
-6. Withdraw by redeeming fLP for USDC at current share value
-
-### Float Assistant
-- Click the sparkle button (bottom right of any page)
-- Ask anything: advance rates, invoice status, pool stats, credit score
-- The assistant reads live on-chain data via 4 tool calls — answers are always current
-
----
-
-## Product Feedback
-
-### Circle User-Controlled Wallets (W3S SDK)
-
-**What worked well:**
-- PIN-based flow is the right UX primitive for non-crypto SME users — no seed phrases is a major win
-- `sdk.execute(challengeId, callback)` is clean and composable with async/await wrappers
-- `POST /v1/w3s/users` idempotency (409 = already exists) is elegant for stateless re-auth flows
-- Wallet addresses are deterministic per userId — makes testing and debugging straightforward
-- The embedded PIN challenge UI handles all the hard UX work (modal, PIN pad, confirmation)
-
-**Suggestions:**
-- A wagmi custom connector for Circle wallets would allow full write support (not just reads) without building a separate signing flow. Currently, Circle users can view all dashboard data but cannot sign transactions — they need MetaMask for writes.
-- WebAuthn/passkey as an alternative to PIN would improve mobile UX significantly
-- A lightweight read-only SDK (no DOM mounting) would help server-side rendering contexts
-- TypeScript type exports for the `sdk.execute` callback result could be more complete — the `result.type` values are underdocumented
-
-### Arc Testnet
-
-**What worked well:**
-- USDC as native gas token is the standout feature — eliminates the "I need ETH for gas" friction for stablecoin apps entirely
-- Full EVM compatibility meant zero tooling changes — Hardhat, wagmi, viem, ethers all worked out of the box
-- Chain ID 5042002 slots cleanly into standard wagmi `defineChain` config
-
-**Suggestions:**
-- RPC reliability had occasional timeout spikes during development — a second public RPC endpoint would help
-- The block explorer (arcscan.app) is functional but lacks event log search, making debugging contract interactions harder
-- Chain ID 5042002 is not yet in common wallet preset lists — users must add the network manually (a MetaMask snap or Chainlist entry would reduce friction)
-- An official Faucet UI for testnet USDC would speed up developer onboarding significantly
-
----
-
-## Video Demo
-[Link to be added — screen recording of: Circle Wallet connection, invoice lifecycle (create/approve/lock/pay), investor deposit/withdraw, AI assistant tool calls]
-
----
-
-## Team
-Solo project built for The Stablecoin Commerce Stack Challenge (Ignyte x Circle x Arc, Jun-Jul 2026).
+Float is a hackathon prototype running on testnet. The contracts use OpenZeppelin libraries,
+custom errors, ReentrancyGuard, exposure caps, and strict collateral settings, but they have not
+gone through a formal external audit.
