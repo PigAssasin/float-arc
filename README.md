@@ -1,217 +1,302 @@
-# Float — On-Chain Invoice Factoring
+# Float - On-Chain Invoice Factoring
 
-> **Float your invoices. SMEs get paid today, not in 90 days.**
+> Float your invoices. SMEs get paid today, not in 90 days.
 
-Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). v6b is the current live version: small businesses upload invoices, receive an immediate USDC advance, and the seller receives the residual back at settlement. Buyers can use the standard pool-financed collateral path or self-finance the advance and keep 75% of the fee as a discount.
+Float is a decentralized invoice factoring protocol for SME working capital on Arc Testnet.
+Sellers create invoices and receive USDC upfront. Buyers repay at maturity. Investors provide
+pool liquidity and earn fee yield through transferable `fLP` shares.
 
-**Live demo:** [floatsme.xyz](https://floatsme.xyz) · [float-arc.vercel.app](https://float-arc.vercel.app)
+The current live version is **v6b**. It adds **Buyer Finance**, a second funding mode where the
+buyer can fund the seller's advance directly and keep 75% of the invoice fee as a discount. This
+lets invoices settle even when pool liquidity is limited, while keeping LP capital out of that
+invoice's default risk.
+
+**Live demo:** [floatsme.xyz](https://floatsme.xyz)
 
 ---
 
-## The Problem
+## Current Status
 
-SMEs issue invoices with 30-90 day payment terms but need cash to operate today. Traditional invoice factoring is slow, opaque, and requires bank relationships. Blockchain removes the middlemen.
+- **Production frontend:** deployed on Vercel at [floatsme.xyz](https://floatsme.xyz)
+- **Network:** Arc Testnet, chain ID `5042002`
+- **Contracts:** v6b deployed and wired into frontend
+- **Tests:** 29 passing Hardhat tests
+- **Build:** Next.js production build passes
 
-## How It Works
+| Contract | Address |
+|----------|---------|
+| FloatPool, ERC20 `fLP` | `0xCaC5c72a870fB989093e68F98027aa0639a4Bf77` |
+| FloatCore | `0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637` |
+| USDC on Arc Testnet | `0x3600000000000000000000000000000000000000` |
 
-```
-Seller creates invoice
-        │
-        ▼
-Pool advances 80–90% immediately ──► Seller receives USDC same block
-        │
-        ▼
-Buyer locks collateral
-        │
-        ▼
-Buyer pays the remaining face value at due date
-        │
-        ├─► Seller receives stake back
-        ├─► Seller receives residual (face - advance - fee)
-        ├─► Investor earns 75% of the fee
-        └─► Collateral refunded to buyer
-```
+---
 
-### Three Roles
+## Why Float Exists
 
-| Role | Action | Outcome |
-|------|--------|---------|
-| **Seller (SME)** | Creates invoice, receives advance | 80–90% upfront, stake returned on buyer payment, residual returned at settlement |
-| **Buyer** | Approves invoice, locks collateral, pays at maturity (in full or in installments) | Collateral fully refunded on payment |
-| **Investor (LP)** | Deposits USDC into pool, holds transferable `fLP` | Earns the fee yield from every financed invoice |
+SMEs often wait 30 to 90 days to get paid, even after delivering goods or services. Traditional
+invoice factoring can be slow, opaque, paperwork-heavy, and inaccessible for small businesses.
 
-### Credit Score Tiers
+Float turns invoice financing into an on-chain workflow:
 
-| Tier | Score | Advance Rate | Seller Stake |
-|------|-------|-------------|--------------|
-| New | 0–40 | 80% | 5% |
-| Fair | 41–70 | 85% | 4% |
-| Good | 71–85 | 88% | 3% |
-| Excellent | 86–100 | 90% | 2% |
+1. A seller creates an invoice.
+2. The buyer approves it.
+3. The seller receives an upfront USDC advance.
+4. The buyer repays at maturity.
+5. Investors earn fee yield for supplying liquidity.
 
-Score improves with on-time buyer payments.
+The result is faster working capital for SMEs, transparent risk controls for LPs, and a simpler
+repayment experience for buyers.
 
-### Protocol Safety
+---
 
-Float implements a three-layer default protection model:
+## The Two Funding Modes
 
-1. **Seller stake** — 2-5% withheld from advance, slashed first on default
-2. **Insurance reserve** — 15% of every fee funds a reserve capped at 10% of investor assets
-3. **LP buffer** — absorbs final gap only after the above are exhausted
+### Mode 1: Standard Pool Finance
 
-Single invoice advance is capped at 20% of pool liquidity to prevent concentration risk.
+This is the normal invoice factoring path.
+
+1. Seller creates an invoice.
+2. Buyer approves the invoice and locks collateral.
+3. FloatPool advances 80% to 90% of the invoice face value to the seller.
+4. Buyer repays the invoice at maturity.
+5. Seller receives the residual amount back.
+6. Buyer receives collateral back.
+7. LPs earn 75% of the invoice fee.
+
+Best for:
+
+- Sellers who want immediate liquidity.
+- Buyers who prefer collateral instead of funding the seller upfront.
+- LPs who want fee yield from invoice financing demand.
+
+### Mode 2: Buyer Finance, v6b
+
+This is the new v6b path.
+
+1. Seller creates an invoice.
+2. Buyer approves it.
+3. Buyer funds the seller's advance directly.
+4. Pool capital is not exposed to this invoice.
+5. Buyer repays the remaining amount at maturity.
+6. Buyer keeps 75% of the fee as a discount.
+
+Best for:
+
+- Buyers who want a cheaper total repayment.
+- Invoices that should not depend on pool liquidity.
+- Safer demos where LP capital should not take risk.
+
+Key property: in Buyer Finance mode, default creates **zero LP loss** because the buyer already
+funded the advance.
+
+---
+
+## Economics
+
+### Seller Advance Tiers
+
+| Tier | Score | Advance | Seller Stake | Verified Buyer Collateral |
+|------|-------|---------|--------------|---------------------------|
+| New | 0-40 | 80% | 5% | 25% |
+| Fair | 41-70 | 85% | 4% | 18% |
+| Good | 71-85 | 88% | 3% | 12% |
+| Excellent | 86-100 | 90% | 2% | 8% |
+
+Score tiers also require enough paid invoice history:
+
+- Fair: at least 2 paid invoices and 60% paid ratio
+- Good: at least 5 paid invoices and 80% paid ratio
+- Excellent: at least 12 paid invoices and 95% paid ratio
+
+### Buyer Fee Schedule
+
+Fees are fixed, public, and based on the buyer's payment history.
+
+| Buyer Tier | Fee per 30 days |
+|------------|-----------------|
+| New | 3.0% |
+| Fair | 2.2% |
+| Good | 1.6% |
+| Excellent | 1.2% |
+
+Fee cap: 8% of invoice face value.
+
+### Fee Split
+
+Mode 1, Pool Finance:
+
+- 10% protocol
+- 15% insurance reserve
+- 75% LP yield
+
+Mode 2, Buyer Finance:
+
+- 10% protocol
+- 15% insurance reserve
+- 75% buyer discount
+
+---
+
+## Protocol Safety
+
+Float uses several layers of protection:
+
+- Seller stake is withheld from the advance and slashed first on default.
+- Buyer collateral protects pool-financed invoices.
+- Insurance reserve is funded by 15% of invoice fees.
+- Per-buyer and per-seller exposure caps limit concentration risk.
+- Strict collateral mode is enabled by default for unverified buyers.
+- Buyer Finance mode removes LP exposure entirely for that invoice.
+
+Testnet verification is intentionally frictionless for demo purposes. Mainnet verification is planned
+to use real KYC and a dedicated attestor key.
+
+---
+
+## Core Contracts
+
+### FloatCore
+
+Handles invoice lifecycle, scoring, financing mode, repayment, and default logic.
+
+Important functions:
+
+- `createInvoice(buyer, amount, dueDate)` - seller creates an invoice
+- `approveInvoice(id)` - buyer approves the invoice
+- `lockCollateral(id)` - buyer uses standard pool-financed mode
+- `financeAsBuyer(id)` - buyer uses v6b buyer-financed mode
+- `payInvoice(id)` - buyer settles the invoice
+- `payPartial(id, amount)` - buyer makes installments in pool-financed mode only
+- `markDefault(id)` - anyone can mark default after grace period
+
+### FloatPool
+
+Holds investor liquidity, collateral, seller stakes, and insurance reserves. LP positions are ERC20
+shares named `Float LP` with symbol `fLP`.
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Blockchain | Arc Testnet (Chain ID 5042002, 1s finality) |
-| Smart Contracts | Solidity 0.8.20 + Hardhat |
-| Frontend | Next.js 14 (App Router) + TypeScript |
-| Wallet | wagmi v2 + viem + Circle Wallets SDK |
+|-------|------------|
+| Blockchain | Arc Testnet |
+| Contracts | Solidity 0.8.20, Hardhat |
+| Frontend | Next.js 14 App Router, TypeScript |
+| Wallet | wagmi v2, viem, Circle Wallets SDK |
 | Styling | Tailwind CSS |
-| AI Assistant | DeepSeek V3 (streaming, context-aware) |
+| AI Assistant | DeepSeek V3 |
 | Deployment | Vercel |
 
 ---
 
-## Smart Contracts
+## Project Structure
 
-Deployed on Arc Testnet:
+```text
+src/
+  app/
+    app/
+      seller/      Seller dashboard and invoice creation
+      buyer/       Buyer approval, finance, collateral, repayment
+      investor/    LP deposit, withdraw, and pool stats
+    api/
+      chat/        AI assistant API
+      circle/      Circle Wallets integration
+      verify/      Testnet verification route
+  components/
+    landing/       Public landing page sections
+    shared/        Shared UI and assistant components
+  hooks/           On-chain data hooks
+  lib/             ABI, addresses, wagmi, and RPC helpers
 
-| Contract | Address |
-|----------|---------|
-| FloatPool (ERC20 `fLP`) | `0xCaC5c72a870fB989093e68F98027aa0639a4Bf77` |
-| FloatCore | `0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637` |
-| USDC | `0x3600000000000000000000000000000000000000` |
-
-### FloatCore
-
-Manages the full invoice lifecycle:
-
-- `createInvoice(buyer, amount, dueDate)` — seller creates invoice
-- `approveInvoice(id)` — buyer approves
-- `lockCollateral(id)` — buyer locks collateral, pool funds advance
-- `financeAsBuyer(id)` — buyer funds the advance directly and keeps 75% of the fee as a discount at settlement
-- `payInvoice(id)` — buyer repays the remaining balance; pool-financed invoices have no early-payment discount
-- `payPartial(id, amount)` — buyer repays pool-financed invoices in installments; auto-settles at face value
-- `markDefault(id)` — anyone can call after grace period expires
-- `sellerScore(address)` / `sellerAdvanceBps(address)` / `sellerStakeBps(address)` — credit system
-- `buyerFeeBpsPer30d(address)` / `feeBpsForTerm(address, termSeconds)` — fixed public fee schedule
-
-Production anti-Sybil hooks ship disabled by default (frictionless on testnet): an
-optional verification gate, per-seller and per-buyer exposure caps, both operator-controlled.
-
-### FloatPool
-
-A tokenized vault: LP shares are a transferable ERC20 (`Float LP` / `fLP`, 6 decimals),
-so investors can move or trade their position without waiting for pool liquidity. It tracks
-four asset buckets:
-
-- **Investor assets** — available for advances
-- **Locked collateral** — held during invoice lifecycle
-- **Seller stakes** — held until payment or default
-- **Insurance reserve** — built from 1% of repayments, capped at 10% of investor assets
-
-A minimum first deposit plus permanently-locked dead shares neutralize the classic
-ERC4626 inflation/donation attack.
+contracts/
+  src/
+    FloatCore.sol  Invoice lifecycle and settlement logic
+    FloatPool.sol  Liquidity pool and fLP shares
+  test/
+    Float.test.js  v6 and v6b contract tests
+  scripts/
+    deploy.js      Arc Testnet deployment
+    seed.js        Pool seeding helper
+    gen-abi.js     ABI/address generation
+```
 
 ---
 
 ## Running Locally
 
 ```bash
-# Install dependencies
 npm install
-
-# Copy environment variables
 cp .env.example .env.local
-# Fill in: CIRCLE_API_KEY, NEXT_PUBLIC_CIRCLE_APP_ID, DEEPSEEK_API_KEY
-
-# Start development server
 npm run dev
+```
+
+Required environment variables:
+
+```env
+CIRCLE_API_KEY=
+NEXT_PUBLIC_CIRCLE_APP_ID=
+DEEPSEEK_API_KEY=
+DEPLOYER_PRIVATE_KEY=
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Compile & Deploy Contracts
+---
+
+## Tests and Build
+
+Frontend:
+
+```bash
+npm run build
+```
+
+Contracts:
 
 ```bash
 cd contracts
 npm install
-npx hardhat compile
+npx hardhat test
+```
+
+Deploy contracts:
+
+```bash
+cd contracts
 npx hardhat run scripts/deploy.js --network arc_testnet
 ```
 
----
+Deploy frontend:
 
-## Project Structure
-
-```
-src/
-  app/
-    app/
-      seller/     — Invoice creation, advance preview, stale invoice management
-      buyer/      — Invoice approval, collateral flow, repayment
-      investor/   — Pool deposit/withdraw, yield tracking
-    api/
-      chat/       — DeepSeek streaming AI assistant
-      circle/     — Circle Wallets integration
-  components/
-    shared/
-      FloatAssistant.tsx   — AI chat widget
-      WrongNetworkBanner   — Chain detection + auto-switch
-    dashboard/
-      DashboardNav         — Top navigation
-      CreditScoreBadge     — On-chain score display
-      InvoiceTable         — Invoice list with status
-  hooks/
-    use-my-invoices.ts     — On-chain invoice fetching (wagmi)
-  lib/
-    contracts.ts           — ABIs and deployed addresses
-    wagmi-config.ts        — Arc Testnet chain config
-
-contracts/
-  src/
-  FloatCore.sol          — Invoice lifecycle, credit scoring, fixed fee settlement
-  FloatPool.sol          — Liquidity pool, stake, insurance, tokenized fLP
+```bash
+vercel --prod --yes
 ```
 
 ---
 
-## Environment Variables
+## Hackathon Context
 
-```env
-# Circle Wallets (user-controlled, PIN-secured)
-CIRCLE_API_KEY=
-NEXT_PUBLIC_CIRCLE_APP_ID=
+Built for **The Stablecoin Commerce Stack Challenge** by Ignyte, Circle, and Arc.
 
-# DeepSeek AI (Float Assistant)
-DEEPSEEK_API_KEY=
+Track: **SME Trade Finance and Working Capital**
 
-# Deployer (contracts only, never in frontend)
-DEPLOYER_PRIVATE_KEY=
-```
+Key integrations:
 
----
+- Arc Testnet for stablecoin settlement
+- Circle Wallets SDK for PIN-secured user-controlled wallets
+- DeepSeek V3 assistant with live on-chain context
+- Vercel production deployment
 
-## Hackathon
+Highlights:
 
-Built for **The Stablecoin Commerce Stack Challenge** (Ignyte x Circle x Arc)
-Track 2 — SME Trade Finance and Working Capital
-
-**Key integrations:**
-- Arc Testnet — native USDC, 1-second finality, no MetaMask required
-- Circle Wallets SDK — PIN-based wallets for non-crypto-native SMEs
-- DeepSeek V3 — AI assistant with on-chain function calling (reads live pool, score, and invoice data)
-
-**Highlights:**
-- Tokenized LP position (`fLP` ERC20) — exit or compose without waiting for liquidity
-- Installment repayment — buyers pay invoices in tranches
-- Three-layer default protection (seller stake → fee-funded insurance reserve → LP buffer)
-- 25 passing contract tests covering residual settlement, exposure caps, partial repayment, and a pool solvency invariant
+- v6b Buyer Finance mode
+- Tokenized LP shares with `fLP`
+- Fixed, public fee schedule
+- Residual repayment to sellers
+- Installment repayment for pool-financed invoices
+- Three-layer default protection
+- 29 passing contract tests
 
 ---
 
