@@ -404,7 +404,7 @@
 
 <p>Small and medium enterprises (SMEs) are the backbone of global trade, yet they routinely wait 30 to 90 days to be paid after delivering goods or services. This working capital gap (often exceeding a company's monthly payroll) forces SMEs to take on expensive debt, turn down new contracts, and miss growth opportunities. Traditional invoice factoring exists, but it is slow, paper-heavy, and accessible only to well-established businesses with banking relationships.</p>
 
-<p><strong>Float</strong> eliminates this gap with a transparent, on-chain invoice factoring protocol. Sellers receive 75 to 88% of an invoice's face value immediately in USDC. Buyers pay 100% at maturity. The spread flows to a decentralized liquidity pool whose investors earn 12 to 25% yield. Every party (seller, buyer, investor) interacts through a single web application, with no intermediary banks or manual underwriting.</p>
+<p><strong>Float</strong> eliminates this gap with a transparent, on-chain invoice factoring protocol. Sellers receive 80 to 90% of an invoice's face value immediately in USDC, then receive the residual back at settlement. The seller's only cost is a fixed, public fee schedule based on the buyer's tier and term. The fee flows to a decentralized liquidity pool whose investors earn the fee yield, split across protocol, insurance, and LPs. Every party (seller, buyer, investor) interacts through a single web application, with no intermediary banks or manual underwriting.</p>
 
 <div class="role-grid">
   <div class="role-card">
@@ -456,8 +456,8 @@
 <table>
   <thead><tr><th>Contract</th><th>Address</th><th>Version</th></tr></thead>
   <tbody>
-    <tr><td>FloatCore</td><td><code>0x336Be2095425ac463c6E121461B68401c3209c85</code></td><td>v4</td></tr>
-    <tr><td>FloatPool (ERC20 fLP)</td><td><code>0x98bF7f0572f542fBD6365531D39C657779839375</code></td><td>v4</td></tr>
+    <tr><td>FloatCore</td><td><code>0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD</code></td><td>v6a</td></tr>
+    <tr><td>FloatPool (ERC20 fLP)</td><td><code>0x866Af692C71D9e1d191be551981c546870413484</code></td><td>v6a</td></tr>
     <tr><td>USDC</td><td><code>0x3600000000000000000000000000000000000000</code></td><td>Arc native</td></tr>
   </tbody>
 </table>
@@ -469,7 +469,7 @@
   <li><strong>Investor dashboard:</strong> deposit USDC, withdraw, view fLP balance and live share value (rises as fees accrue)</li>
   <li><strong>Circle Wallet integration:</strong> PIN-based wallet connection; Circle users can view all dashboard data without MetaMask</li>
   <li><strong>Float Assistant:</strong> DeepSeek V3 AI chatbot with 4 live on-chain tool calls; answers are always current, never static</li>
-  <li><strong>Legacy pool migration banner:</strong> guides investors from the v3 pool address to v4</li>
+  <li><strong>Legacy pool migration banner:</strong> guides investors from legacy pool addresses to the current pool</li>
 </ul>
 
 <!-- ─── 4. PROTOCOL DESIGN ─────────────────────────────────────────────── -->
@@ -490,8 +490,8 @@
 <h2>Three-Layer Default Protection</h2>
 <p>LP principal is the last resort, not the first. When a buyer defaults, losses are absorbed in this order:</p>
 <ol class="layers">
-  <li><strong>Buyer collateral</strong> (12-25% of invoice): locked at invoice approval, first to be slashed</li>
-  <li><strong>Seller stake</strong> (5-10%): withheld from the advance disbursement, slashed if collateral is insufficient</li>
+  <li><strong>Buyer collateral</strong>: locked at invoice approval, first to be slashed</li>
+  <li><strong>Seller stake</strong> (2-5%): withheld from the advance disbursement, slashed if collateral is insufficient</li>
   <li><strong>Insurance reserve:</strong> funded by a 1% fee on every invoice; capped at 5% of pool TVL per event</li>
   <li><strong>LP principal:</strong> only touched if all three layers are exhausted</li>
 </ol>
@@ -525,7 +525,7 @@
   ┌────────────────────────▼───────────────────────────────┐
   │              Arc Testnet  (Chain ID 5042002)            │
   │                                                        │
-  │  FloatCore v4                  FloatPool v4 (fLP)      │
+  │  FloatCore v6a                 FloatPool v6a (fLP)     │
   │  ─────────────                 ──────────────────      │
   │  createInvoice()               deposit() / withdraw()  │
   │  approveInvoice()              totalAssets()           │
@@ -564,7 +564,7 @@
   <span class="badge">Custom errors (gas efficient)</span>
   <span class="badge">MAX_INVOICE_BPS = 20% cap</span>
   <span class="badge">Inflation guard (1,000 dead shares)</span>
-  <span class="badge">Bounded insurance (5% of TVL)</span>
+  <span class="badge">Bounded insurance (10% of investor assets)</span>
   <span class="badge">Anti-Sybil hooks (opt-in)</span>
   <span class="badge">One-way core registration</span>
   <span class="badge">APPROVAL_TIMEOUT = 72h</span>

@@ -2,7 +2,9 @@
 
 > **Float your invoices. SMEs get paid today, not in 90 days.**
 
-Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). Small businesses upload invoices and receive an immediate USDC advance. Buyers pay at maturity. Liquidity providers earn yield on every advance.
+Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). v6a is the current live economics: small businesses upload invoices, receive an immediate USDC advance, and the seller receives the residual back at settlement. Buyers pay at maturity. Liquidity providers earn yield from a fixed, public fee schedule.
+
+v6b buyer finance remains deferred for now; the shipped flow is the pool-financed v6a path.
 
 **Live demo:** [floatsme.xyz](https://floatsme.xyz) · [float-arc.vercel.app](https://float-arc.vercel.app)
 
@@ -18,16 +20,17 @@ SMEs issue invoices with 30-90 day payment terms but need cash to operate today.
 Seller creates invoice
         │
         ▼
-Pool advances 75–88% immediately ──► Seller receives USDC same block
+Pool advances 80–90% immediately ──► Seller receives USDC same block
         │
         ▼
 Buyer locks collateral
         │
         ▼
-Buyer pays 100% at due date
+Buyer pays the remaining face value at due date
         │
         ├─► Seller receives stake back
-        ├─► Investor earns spread
+        ├─► Seller receives residual (face - advance - fee)
+        ├─► Investor earns 75% of the fee
         └─► Collateral refunded to buyer
 ```
 
@@ -35,18 +38,18 @@ Buyer pays 100% at due date
 
 | Role | Action | Outcome |
 |------|--------|---------|
-| **Seller (SME)** | Creates invoice, receives advance | 75–88% upfront, stake returned on buyer payment |
+| **Seller (SME)** | Creates invoice, receives advance | 80–90% upfront, stake returned on buyer payment, residual returned at settlement |
 | **Buyer** | Approves invoice, locks collateral, pays at maturity (in full or in installments) | Collateral fully refunded on payment |
-| **Investor (LP)** | Deposits USDC into pool, holds transferable `fLP` | Earns 12–25% spread from every advance |
+| **Investor (LP)** | Deposits USDC into pool, holds transferable `fLP` | Earns the fee yield from every financed invoice |
 
 ### Credit Score Tiers
 
 | Tier | Score | Advance Rate | Seller Stake |
 |------|-------|-------------|--------------|
-| New | 0–40 | 75% | 10% |
-| Fair | 41–70 | 80% | 8% |
-| Good | 71–85 | 84% | 6% |
-| Excellent | 86–100 | 88% | 5% |
+| New | 0–40 | 80% | 5% |
+| Fair | 41–70 | 85% | 4% |
+| Good | 71–85 | 88% | 3% |
+| Excellent | 86–100 | 90% | 2% |
 
 Score improves with on-time buyer payments.
 
@@ -54,8 +57,8 @@ Score improves with on-time buyer payments.
 
 Float implements a three-layer default protection model:
 
-1. **Seller stake** — 5-10% withheld from advance, slashed first on default
-2. **Insurance reserve** — 1% of every repayment builds a reserve fund that covers LP shortfall
+1. **Seller stake** — 2-5% withheld from advance, slashed first on default
+2. **Insurance reserve** — 15% of every fee funds a reserve capped at 10% of investor assets
 3. **LP buffer** — absorbs final gap only after the above are exhausted
 
 Single invoice advance is capped at 20% of pool liquidity to prevent concentration risk.
@@ -82,8 +85,8 @@ Deployed on Arc Testnet:
 
 | Contract | Address |
 |----------|---------|
-| FloatPool (ERC20 `fLP`) | `0x98bF7f0572f542fBD6365531D39C657779839375` |
-| FloatCore | `0x336Be2095425ac463c6E121461B68401c3209c85` |
+| FloatPool (ERC20 `fLP`) | `0x866Af692C71D9e1d191be551981c546870413484` |
+| FloatCore | `0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD` |
 | USDC | `0x3600000000000000000000000000000000000000` |
 
 ### FloatCore
@@ -93,13 +96,14 @@ Manages the full invoice lifecycle:
 - `createInvoice(buyer, amount, dueDate)` — seller creates invoice
 - `approveInvoice(id)` — buyer approves
 - `lockCollateral(id)` — buyer locks collateral, pool funds advance
-- `payInvoice(id)` — buyer repays the remaining balance (early-payment discount applies)
+- `payInvoice(id)` — buyer repays the remaining balance; no early-payment discount in v6a
 - `payPartial(id, amount)` — buyer repays in installments; auto-settles at face value
 - `markDefault(id)` — anyone can call after grace period expires
-- `sellerScore(address)` / `sellerAdvanceBps(address)` — credit system
+- `sellerScore(address)` / `sellerAdvanceBps(address)` / `sellerStakeBps(address)` — credit system
+- `buyerFeeBpsPer30d(address)` / `feeBpsForTerm(address, termSeconds)` — fixed public fee schedule
 
 Production anti-Sybil hooks ship disabled by default (frictionless on testnet): an
-optional verification gate and a per-seller outstanding-exposure cap, both operator-controlled.
+optional verification gate, per-seller and per-buyer exposure caps, both operator-controlled.
 
 ### FloatPool
 
@@ -172,8 +176,8 @@ src/
 
 contracts/
   src/
-    FloatCore.sol          — Invoice lifecycle, credit scoring
-    FloatPool.sol          — Liquidity pool, stake, insurance
+  FloatCore.sol          — Invoice lifecycle, credit scoring, fixed fee settlement
+  FloatPool.sol          — Liquidity pool, stake, insurance, tokenized fLP
 ```
 
 ---
@@ -207,8 +211,8 @@ Track 2 — SME Trade Finance and Working Capital
 **Highlights:**
 - Tokenized LP position (`fLP` ERC20) — exit or compose without waiting for liquidity
 - Installment repayment — buyers pay invoices in tranches
-- Three-layer default protection (seller stake → insurance reserve → LP buffer)
-- 34 passing contract tests including a quantified self-dealing exploit and a pool solvency invariant
+- Three-layer default protection (seller stake → fee-funded insurance reserve → LP buffer)
+- 25 passing contract tests covering residual settlement, exposure caps, partial repayment, and a pool solvency invariant
 
 ---
 

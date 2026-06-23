@@ -1,6 +1,7 @@
 # Float v6 — Economic Recalibration + Buyer Finance
 
-Status: **PLAN ONLY (not implemented).** Awaiting approval after the logic + security review below.
+Status: **v6a COMPLETE on Arc Testnet; v6b deferred.**
+This file is kept as the historical plan and implementation checklist.
 Updated 2026-06-20 with finalized parameters and a pre-code audit.
 
 ---
@@ -174,16 +175,16 @@ Because mode 2 has distinct accounting, split delivery so the economic win lands
 ## 8. Checkpoints
 
 ### v6a
-- [ ] CP0 Approve parameters (section 1) and this audit.
-- [ ] CP1 FloatCore v6a: fee field, recalibrated tiers + score gates, `_settle` with residual + fee split, `adv+f<=A` guard.
-- [ ] CP2 FloatPool v6a: residual payout + fee/origination accounting; preserve invariant.
-- [ ] CP3 Tests: cash-flow balance, invariant, seller cost = fee, LP accrual, default safety, score gates, rounding, partial-pay once. Plus adapt existing 40.
-- [ ] CP4 Deploy v6a (pool+core) to Arc Testnet + seed.
-- [ ] CP5 contracts.ts addresses + ABI.
-- [ ] CP6 Frontend: seller "advance now + residual later, fee X%"; investor APY from real model; soft cap UI if any.
-- [ ] CP7 Deploy + smoke test.
+- [x] CP0 Approve parameters (section 1) and this audit.
+- [x] CP1 FloatCore v6a: fee field, recalibrated tiers + score gates, `_settle` with residual + fee split, `adv+f<=A` guard.
+- [x] CP2 FloatPool v6a: residual payout + fee/origination accounting; preserve invariant.
+- [x] CP3 Tests: cash-flow balance, invariant, seller cost = fee, LP accrual, default safety, score gates, rounding, partial-pay once. Plus adapt existing 40.
+- [x] CP4 Deploy v6a (pool+core) to Arc Testnet + seed.
+- [x] CP5 contracts.ts addresses + ABI.
+- [x] CP6 Frontend: seller "advance now + residual later, fee X%"; investor APY from real model; soft cap UI if any.
+- [x] CP7 Deploy + smoke test.
 
-### v6b
+### v6b (deferred)
 - [ ] CP8 FloatCore v6b: Financier enum, mode-2 funding path (no stake, funding-as-payment), fee-to-buyer split, disallow partial in mode 2.
 - [ ] CP9 Tests: mode-2 cash flow, zero-loss default, collusion negative, invariant in mode 2.
 - [ ] CP10 Frontend: buyer mode toggle "Finance & earn $Y" vs "Standard"; AI explains.

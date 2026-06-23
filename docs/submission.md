@@ -16,7 +16,7 @@
 
 Float is an on-chain invoice factoring protocol that eliminates the working capital gap for small and medium enterprises (SMEs).
 
-In traditional trade finance, an SME invoices a buyer and then waits 30 to 90 days to be paid. That gap — often tens of thousands of dollars — forces SMEs to take on debt, delay hiring, and miss growth opportunities. Float solves this by letting sellers receive 75 to 88% of the invoice value immediately in USDC, while a decentralized pool of investors earns 12 to 25% yield from the spread.
+In traditional trade finance, an SME invoices a buyer and then waits 30 to 90 days to be paid. That gap — often tens of thousands of dollars — forces SMEs to take on debt, delay hiring, and miss growth opportunities. Float solves this by letting sellers receive 80 to 90% of the invoice value immediately in USDC, then returning the residual at settlement. The seller's only cost is a fixed, public fee schedule based on the buyer's tier and term. A decentralized pool of investors earns the fee yield, split across protocol, insurance, and LPs.
 
 The entire protocol runs on Arc Testnet with USDC as the settlement currency. Circle's User-Controlled Wallet SDK is integrated as a first-class connection option, so any SME owner can participate without needing MetaMask, a seed phrase, or any prior crypto experience — just a PIN.
 
@@ -68,8 +68,8 @@ coinlistx100@gmail.com
 
 | Contract | Address |
 |----------|---------|
-| FloatCore v4 | `0x336Be2095425ac463c6E121461B68401c3209c85` |
-| FloatPool v4 (fLP) | `0x98bF7f0572f542fBD6365531D39C657779839375` |
+| FloatCore v6a | `0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD` |
+| FloatPool v6a (fLP) | `0x866Af692C71D9e1d191be551981c546870413484` |
 | USDC (Arc native) | `0x3600000000000000000000000000000000000000` |
 
 ### MVP Features
@@ -86,10 +86,10 @@ coinlistx100@gmail.com
 ### Three roles, one protocol
 
 **Seller (SME)**
-Creates an invoice naming a buyer and the invoice amount. Based on their credit tier, they receive an immediate USDC advance (75-88% of face value). A stake (5-10%) is withheld from the advance as recourse collateral and returned when the buyer pays.
+Creates an invoice naming a buyer and the invoice amount. Based on their credit tier, they receive an immediate USDC advance (80-90% of face value). A stake (2-5%) is withheld from the advance as recourse collateral and returned when the buyer pays. At settlement the seller also receives the residual amount (face minus advance minus fee).
 
 **Buyer**
-Receives the invoice for approval. After approving, locks a collateral deposit (12-25% of invoice). At due date, pays 100% of the invoice face value. A 7-day grace period applies before default can be triggered.
+Receives the invoice for approval. After approving, locks a collateral deposit (8-25% of invoice, depending on tier and verification state). At due date, pays the remaining face value. A 7-day grace period applies before default can be triggered.
 
 **Investor**
 Deposits USDC into the liquidity pool and receives fLP (Float LP) ERC20 tokens. As invoice fees accrue, the share value of fLP rises. Investors can transfer or redeem fLP at any time.
@@ -98,19 +98,19 @@ Deposits USDC into the liquidity pool and receives fLP (Float LP) ERC20 tokens. 
 
 | Tier | Credit Score | Advance | Seller Stake | Buyer Collateral |
 |------|-------------|---------|-------------|-----------------|
-| New | 0-40 or no history | 75% | 10% | 25% |
-| Fair | 41-70 | 80% | 8% | 20% |
-| Good | 71-85 | 84% | 6% | 16% |
-| Excellent | 86-100 | 88% | 5% | 12% |
+| New | 0-40 or no history | 80% | 5% | 25% |
+| Fair | 41-70 | 85% | 4% | 18% |
+| Good | 71-85 | 88% | 3% | 12% |
+| Excellent | 86-100 | 90% | 2% | 8% |
 
-Tier is determined by `sellerAdvanceBps()` on-chain. New sellers (no invoice history) always receive the conservative New tier (75%), regardless of their raw score — this prevents Sybil attacks where someone creates many small invoices to inflate their score.
+Tier is determined by `sellerAdvanceBps()` on-chain. New sellers (no invoice history) always receive the conservative New tier (80%), regardless of their raw score — this prevents Sybil attacks where someone creates many small invoices to inflate their score.
 
 ### Default Protection (Three Layers)
 
 When a buyer defaults, losses are covered in this order:
-1. Buyer collateral (12-25% of invoice) covers first
-2. Seller stake (5-10%) covers second
-3. Protocol insurance reserve (bounded at 5% of TVL) covers remainder
+1. Buyer collateral covers first
+2. Seller stake covers second
+3. Protocol insurance reserve, funded from 15% of every fee and capped at 10% of investor assets, covers the remainder
 4. LP principal is only touched if all three layers are exhausted
 
 ### Credit Score Formula
@@ -154,7 +154,7 @@ Seller Dashboard  |  Buyer Dashboard  |  Investor Dashboard
 Arc Testnet (Chain ID: 5042002)
 =========================================================
 
-   FloatCore v4                      FloatPool v4 (ERC20 fLP)
+   FloatCore v6a                     FloatPool v6a (ERC20 fLP)
    -----------                       -------------------------
    createInvoice()                   deposit()
    approveInvoice()                  withdraw()
@@ -166,7 +166,9 @@ Arc Testnet (Chain ID: 5042002)
    cancelApprovalTimeout()           ERC20 transfer/approve
    cancelCollateralTimeout()
    sellerScore(address)
-   sellerAdvanceBps(address)         USDC (Arc native)
+   sellerAdvanceBps(address)         sellerStakeBps(address)
+   buyerFeeBpsPer30d(address)        feeBpsForTerm(address, termSeconds)
+   USDC (Arc native)
    invoiceCount()                    0x3600000000000000000000000000000000000000
    getInvoice(id)
 ```
@@ -193,8 +195,8 @@ Arc Testnet (Chain ID: 5042002)
 - **Custom errors** (gas efficient: `error ZeroAmount()`, `error InvoiceTooLarge(...)`, etc.)
 - **MAX_INVOICE_BPS = 2000** — single invoice advance capped at 20% of available liquidity to prevent pool drain
 - **Inflation guard** — 1,000 dead shares minted on pool initialization (prevents ERC4626-style inflation attack)
-- **Bounded insurance** — per-event insurance payout capped at 5% of pool TVL
-- **Anti-Sybil hooks** — `verificationRequired` flag (OFF by default for testnet open access, pluggable to EAS attestations in production)
+- **Bounded insurance** — insurance reserve capped at 10% of investor assets
+- **Anti-Sybil hooks** — `verificationRequired` flag (OFF by default for testnet open access), plus per-seller and per-buyer exposure caps
 - **One-time core registration** — `setAuthorizedCore()` is one-way, preventing unauthorized pool access upgrades
 - **APPROVAL_TIMEOUT = 72h** and **COLLATERAL_TIMEOUT = 48h** — stale invoices can be cancelled by seller, returning them to a clean state
 
