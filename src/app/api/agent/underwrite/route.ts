@@ -26,13 +26,13 @@ EVIDENCE:
 ${JSON.stringify(data, null, 2)}
 ${note ? `\nSeller-provided context about the buyer (qualitative, unverified): "${note}"` : ""}
 
-Float's advance tiers map score to advance rate: New 0-40 => 7500 bps (75%), Fair 41-70 => 8000 bps (80%), Good 71-85 => 8400 bps (84%), Excellent 86-100 => 8800 bps (88%).
+Float's advance tiers map score to advance rate: New 0-40 => 8000 bps (80%), Fair 41-70 => 8500 bps (85%), Good 71-85 => 8800 bps (88%), Excellent 86-100 => 9000 bps (90%).
 
 Respond with ONLY a JSON object (no markdown) of this exact shape:
 {
   "buyerScore": <int 0-100>,
   "sellerScore": <int 0-100 or null if no seller given>,
-  "recommendedAdvanceBps": <one of 7500|8000|8400|8800>,
+  "recommendedAdvanceBps": <one of 8000|8500|8800|9000>,
   "recommendedTier": "New"|"Fair"|"Good"|"Excellent",
   "confidence": "low"|"medium"|"high",
   "verdict": "approve"|"caution"|"decline",

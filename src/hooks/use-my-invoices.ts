@@ -13,11 +13,13 @@ export interface OnChainInvoice {
   advance: bigint;
   collateral: bigint;
   stake: bigint;
+  fee: bigint;
   dueDate: bigint;
   createdAt: bigint;
   approvedAt: bigint;
   amountPaid: bigint;
   status: number;
+  financier?: number;
 }
 
 export function useMyInvoices(address: `0x${string}` | undefined, role: "seller" | "buyer") {
@@ -53,11 +55,13 @@ export function useMyInvoices(address: `0x${string}` | undefined, role: "seller"
       advance: bigint;
       collateral: bigint;
       stake: bigint;
+      fee: bigint;
       dueDate: bigint;
       createdAt: bigint;
       approvedAt: bigint;
       amountPaid: bigint;
       status: number;
+      financier?: number;
     };
     const matchAddress = role === "seller" ? inv.seller : inv.buyer;
     if (!address || matchAddress.toLowerCase() !== address.toLowerCase()) return;

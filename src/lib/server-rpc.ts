@@ -51,7 +51,7 @@ export async function getMyScore(address?: string) {
     pool("balanceOf", [address]),
   ])) as [bigint, bigint, bigint, bigint, bigint];
   const adv = Number(advBps);
-  const tier = adv >= 8800 ? "Excellent" : adv >= 8400 ? "Good" : adv >= 8000 ? "Fair" : "New";
+  const tier = adv >= 9000 ? "Excellent" : adv >= 8800 ? "Good" : adv >= 8500 ? "Fair" : "New";
   return {
     address,
     sellerScore: Number(sScore),

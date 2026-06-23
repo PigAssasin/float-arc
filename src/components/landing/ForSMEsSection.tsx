@@ -27,7 +27,7 @@ const STEPS = [
     icon: <Clock className="w-5 h-5 text-[#DEDBC8]" />,
     title: "Receive USDC upfront.",
     desc: "The advance is sent to your wallet in the same transaction. No waiting, no approval process, no bank transfer delays.",
-    items: ["75–88% of invoice value upfront", "Funds arrive in seconds on Arc", "No interest charged to you"],
+    items: ["80-90% invoice advance", "Funds arrive in seconds on Arc", "Explicit fee, no hidden interest"],
   },
   {
     num: "03",
@@ -41,15 +41,15 @@ const STEPS = [
     icon: <ShieldCheck className="w-5 h-5 text-[#DEDBC8]" />,
     title: "Build your credit score.",
     desc: "Every on-time payment improves your on-chain credit score, permanently recorded on Arc. Higher score means higher advance rates, forever.",
-    items: ["Score is public and immutable", "Starts at 50 for new sellers", "Reaches 88% advance at score 86+"],
+    items: ["Score is public and immutable", "Starts at 50 for new sellers", "Reaches 90% advance at score 86+"],
   },
 ];
 
 const TIERS = [
-  { label: "New",       score: "0–40",   rate: "75%", color: "#FF0000", desc: "New to Float" },
-  { label: "Fair",      score: "41–70",  rate: "80%", color: "#FFA500", desc: "Building history" },
-  { label: "Good",      score: "71–85",  rate: "84%", color: "#DEDBC8", desc: "Strong track record" },
-  { label: "Excellent", score: "86–100", rate: "88%", color: "#008000", desc: "Top-tier seller" },
+  { label: "New",       score: "0-40",   rate: "80%", color: "#FF0000", desc: "New to Float" },
+  { label: "Fair",      score: "41-70",  rate: "85%", color: "#FFA500", desc: "Building history" },
+  { label: "Good",      score: "71-85",  rate: "88%", color: "#DEDBC8", desc: "Strong track record" },
+  { label: "Excellent", score: "86-100", rate: "90%", color: "#008000", desc: "Top-tier seller" },
 ];
 
 export function ForSMEsSection() {

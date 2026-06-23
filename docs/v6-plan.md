@@ -1,6 +1,6 @@
 # Float v6 — Economic Recalibration + Buyer Finance
 
-Status: **v6a COMPLETE on Arc Testnet; v6b deferred.**
+Status: **v6b COMPLETE on Arc Testnet and production frontend deployed.**
 This file is kept as the historical plan and implementation checklist.
 Updated 2026-06-20 with finalized parameters and a pre-code audit.
 
@@ -184,11 +184,11 @@ Because mode 2 has distinct accounting, split delivery so the economic win lands
 - [x] CP6 Frontend: seller "advance now + residual later, fee X%"; investor APY from real model; soft cap UI if any.
 - [x] CP7 Deploy + smoke test.
 
-### v6b (deferred)
-- [ ] CP8 FloatCore v6b: Financier enum, mode-2 funding path (no stake, funding-as-payment), fee-to-buyer split, disallow partial in mode 2.
-- [ ] CP9 Tests: mode-2 cash flow, zero-loss default, collusion negative, invariant in mode 2.
-- [ ] CP10 Frontend: buyer mode toggle "Finance & earn $Y" vs "Standard"; AI explains.
-- [ ] CP11 Deploy + smoke test both modes.
+### v6b
+- [x] CP8 FloatCore v6b: Financier enum, mode-2 funding path (no stake, funding-as-payment), fee-to-buyer split, disallow partial in mode 2.
+- [x] CP9 Tests: mode-2 cash flow, zero-loss default, invariant in mode 2.
+- [x] CP10 Frontend: buyer mode option "Finance as Buyer" vs standard collateral.
+- [x] CP11 Deploy + smoke test both modes.
 
 ---
 

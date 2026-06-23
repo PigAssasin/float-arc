@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { CONTRACTS } from "@/lib/contracts";
 
 const CIRCLE_API = "https://api.circle.com/v1/w3s";
 const API_KEY = process.env.CIRCLE_API_KEY!;
+
+const ALLOWED_FUNCTIONS: Record<string, Set<string>> = {
+  [CONTRACTS.USDC.toLowerCase()]: new Set(["approve(address,uint256)"]),
+  [CONTRACTS.FLOAT_POOL.toLowerCase()]: new Set(["deposit(uint256)", "withdraw(uint256)"]),
+  [CONTRACTS.FLOAT_CORE.toLowerCase()]: new Set([
+    "createInvoice(address,uint256,uint256)",
+    "approveInvoice(uint256)",
+    "rejectInvoice(uint256)",
+    "lockCollateral(uint256)",
+    "financeAsBuyer(uint256)",
+    "payInvoice(uint256)",
+    "payPartial(uint256,uint256)",
+    "markDefault(uint256)",
+  ]),
+};
 
 // Creates a contract-execution challenge for a user-controlled wallet. The client
 // completes it with the user's PIN via the W3SSdk, then Circle broadcasts the tx
@@ -15,6 +31,11 @@ export async function POST(req: NextRequest) {
   if (!walletId) return NextResponse.json({ error: "walletId required" }, { status: 400 });
   if (!contractAddress) return NextResponse.json({ error: "contractAddress required" }, { status: 400 });
   if (!abiFunctionSignature) return NextResponse.json({ error: "abiFunctionSignature required" }, { status: 400 });
+
+  const allowedForContract = ALLOWED_FUNCTIONS[String(contractAddress).toLowerCase()];
+  if (!allowedForContract?.has(abiFunctionSignature)) {
+    return NextResponse.json({ error: "contract call not allowed" }, { status: 403 });
+  }
 
   const body: Record<string, unknown> = {
     idempotencyKey: randomUUID(),

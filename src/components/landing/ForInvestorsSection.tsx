@@ -25,7 +25,7 @@ const MECHANICS = [
     icon: <BarChart3 className="w-5 h-5 text-[#DEDBC8]" />,
     title: "Earn from the fee spread.",
     desc: "Every invoice advance charges a 1–5% origination fee. That fee goes directly to the pool, increasing share value over time.",
-    items: ["Advance rate: 75–88% to seller", "You capture the 12–25% margin", "Yield increases with invoice volume"],
+    items: ["Advance rate: 80-90% to seller", "LPs capture 75% of invoice fees", "Yield increases with invoice volume"],
   },
   {
     icon: <RefreshCw className="w-5 h-5 text-[#DEDBC8]" />,

@@ -48,15 +48,15 @@ const FAQ = [
   },
   {
     q: "How is the advance rate calculated?",
-    a: "Each seller has an on-chain score from 0 to 100. New sellers start at 50 and receive a 75% advance rate. The score is the ratio of paid invoices to total invoices. Scores improve as the seller builds repayment history, unlocking 80%, 84%, and 88% advance rates over time.",
+    a: "Each seller has an on-chain score from 0 to 100. New sellers start at 50 and receive an 85% advance rate. The score is the ratio of paid invoices to total invoices, with paid-count gates for higher tiers. Scores improve as the seller builds repayment history, unlocking 88% and 90% advance rates over time.",
   },
   {
-    q: "Is there an early repayment benefit?",
-    a: "Yes. Buyers who pay before the due date receive a discount of up to 2% of the invoice amount. The discount decreases linearly over time: paying on day 1 of a 30-day invoice gives the full 2%, while paying on day 29 gives almost nothing. After the due date, no discount applies.",
+    q: "Is there an early repayment discount?",
+    a: "No. In v6a there is no early-repayment discount. The buyer repays the invoice face value, while the seller's cost is an explicit term-scaled fee that was calculated when the invoice was created.",
   },
   {
     q: "How do investors earn yield?",
-    a: "When a buyer repays 100% of the invoice but the seller only received 75-88%, the spread (12-25%) accumulates in the pool. This increases investorAssets relative to total shares, raising the share value. Investors capture accrued yield when they redeem their shares.",
+    a: "When a buyer repays 100% of the invoice, the explicit invoice fee is split between protocol, insurance, and LPs. Investors receive 75% of the fee, increasing investorAssets relative to total shares. Investors capture accrued yield when they redeem their shares.",
   },
   {
     q: "Can investors withdraw at any time?",
@@ -105,7 +105,7 @@ export default function DocsPage() {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Advance rate", value: "75 to 88%" },
+              { label: "Advance rate", value: "80 to 90%" },
               { label: "Settlement", value: "Sub-second" },
               { label: "Currency", value: "USDC" },
               { label: "Network", value: "Arc Testnet" },
@@ -147,7 +147,7 @@ export default function DocsPage() {
               {
                 step: "05", who: "Investor",
                 action: "Capture the spread",
-                detail: "The pool received 100% of the invoice but only disbursed 75-88% as advance. The difference (12-25%) stays in the pool and increases investorAssets relative to total shares. Share value rises. Investors redeem shares for more USDC than they deposited.",
+                detail: "The buyer repays 100% of the invoice face value. The explicit invoice fee is split 10% to protocol, 15% to insurance, and 75% to LPs. The LP share increases investorAssets relative to total shares, so share value rises as invoices settle.",
               },
             ].map((s) => (
               <div key={s.step} className="flex items-start gap-6 p-6">
@@ -164,9 +164,9 @@ export default function DocsPage() {
           </Card>
           <div className="grid sm:grid-cols-3 gap-3">
             {[
-              { label: "Seller receives", value: "75-88% upfront", desc: "Based on credit score tier" },
+              { label: "Seller receives", value: "80-90% advance", desc: "Based on credit score tier" },
               { label: "Buyer repays", value: "100% at maturity", desc: "7-day grace period after due date" },
-              { label: "Investor earns", value: "12-25% spread", desc: "Accumulated as share value growth" },
+              { label: "Investor earns", value: "75% of fees", desc: "Accumulated as share value growth" },
             ].map((s) => (
               <Card key={s.label} className="p-4">
                 <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-1">{s.label}</p>
@@ -221,7 +221,7 @@ export default function DocsPage() {
                   { n: "3", t: "Approve or reject invoice", d: "Review the invoice terms: seller address, amount, advance sent to seller, collateral required from you, and due date. Call approveInvoice(id) to confirm or rejectInvoice(id) to cancel. No USDC needed yet." },
                   { n: "4", t: "Lock collateral", d: "After approving, Float asks you to lock USDC as collateral. Step 1: approve FloatCore for the collateral amount. Step 2: call lockCollateral(id). This triggers the advance to the seller in the same transaction." },
                   { n: "5", t: "Pay at due date", d: "When the invoice is due, Step 1: approve FloatCore for the full invoice amount. Step 2: call payInvoice(id). The full amount goes to the pool and your collateral is returned to your wallet in the same transaction." },
-                  { n: "6", t: "Early repayment", d: "Pay before the due date to receive a discount of up to 2% of the invoice amount. The discount is proportional to how much time remains — the earlier you pay, the more you save." },
+                  { n: "6", t: "Repay invoice", d: "Pay the full invoice face value at or before the due date. v6a has no early-repayment discount; the seller's cost is the explicit fee calculated at invoice creation." },
                 ].map((item) => (
                   <div key={item.n} className="flex gap-4 px-6 py-4">
                     <span className="w-5 h-5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-mono flex items-center justify-center shrink-0 mt-0.5">{item.n}</span>
@@ -286,10 +286,10 @@ export default function DocsPage() {
               <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-3">Advance tiers</p>
               <div className="flex flex-col gap-2 mb-4">
                 {[
-                  { tier: "New",       score: "0 to 40",   rate: "75%", color: "#ef4444", desc: "Starting tier for new sellers" },
-                  { tier: "Fair",      score: "41 to 70",  rate: "80%", color: "#f97316", desc: "Building repayment history" },
-                  { tier: "Good",      score: "71 to 85",  rate: "84%", color: "#DEDBC8", desc: "Consistent on-time payments" },
-                  { tier: "Excellent", score: "86 to 100", rate: "88%", color: "#22c55e", desc: "Top-tier seller track record" },
+                  { tier: "New",       score: "0 to 40",   rate: "80%", color: "#ef4444", desc: "Starting tier for new sellers" },
+                  { tier: "Fair",      score: "41 to 70",  rate: "85%", color: "#f97316", desc: "Building repayment history" },
+                  { tier: "Good",      score: "71 to 85",  rate: "88%", color: "#DEDBC8", desc: "Consistent on-time payments" },
+                  { tier: "Excellent", score: "86 to 100", rate: "90%", color: "#22c55e", desc: "Top-tier seller track record" },
                 ].map((t) => (
                   <div key={t.tier} className="flex items-center justify-between py-2 border-b border-white/[0.04] last:border-0">
                     <div className="flex items-center gap-2">
@@ -356,9 +356,9 @@ export default function DocsPage() {
                 {[
                   "6-state invoice lifecycle (PENDING_APPROVAL to PAID/DEFAULTED/CANCELLED)",
                   "Dual credit scores: separate scores for sellers and buyers",
-                  "Advance rate calculation from seller score tier (75-88%)",
+                  "Advance rate calculation from seller score tier (80-90%)",
                   "Buyer collateral requirement calculation per invoice",
-                  "Early repayment discount up to 2% (proportional to time remaining)",
+                  "Explicit term-scaled fee calculation with no early-repayment discount",
                   "Permissionless markDefault() after grace period expires",
                   "72h approval timeout + 48h collateral timeout auto-cancel",
                 ].map((item) => (
@@ -398,15 +398,15 @@ export default function DocsPage() {
             {[
               {
                 name: "FloatPool",
-                address: "0xFc8bd9986B22f4eCe0D29c4C15AEEB340fd40e20",
+                address: "0xCaC5c72a870fB989093e68F98027aa0639a4Bf77",
                 desc: "Investor vault with collateral custody. Accepts USDC deposits, issues proportional shares, holds buyer collateral in escrow, disburses advances to sellers, and releases or slashes collateral on repayment or default. Share value rises as invoice spreads accumulate.",
                 fns: ["deposit(uint256 amount)", "withdraw(uint256 shareAmount)", "recordCollateral(uint256 id, uint256 amount)", "releaseCollateral(uint256 id, address to)", "slashCollateral(uint256 id)", "shareValue() returns uint256", "investorAssets() returns uint256", "availableLiquidity() returns uint256"],
               },
               {
                 name: "FloatCore",
-                address: "0xb4dC6C0509f8212D3BFC428a6677ce890C4acbd9",
-                desc: "Invoice lifecycle manager with dual credit scores. Handles 6-state invoice flow (PENDING_APPROVAL, PENDING_COLLATERAL, FUNDED, PAID, DEFAULTED, CANCELLED), buyer collateral locking, early repayment discounts up to 2%, and atomic score updates for both seller and buyer.",
-                fns: ["createInvoice(address buyer, uint256 amount, uint256 dueDate)", "approveInvoice(uint256 id)", "rejectInvoice(uint256 id)", "lockCollateral(uint256 id)", "payInvoice(uint256 id)", "markDefault(uint256 id)", "earlyRepayAmount(uint256 id)", "sellerScore(address) returns uint256", "buyerScore(address) returns uint256"],
+                address: "0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637",
+                desc: "Invoice lifecycle manager with dual credit scores. Handles 6-state invoice flow (PENDING_APPROVAL, PENDING_COLLATERAL, FUNDED, PAID, DEFAULTED, CANCELLED), buyer collateral locking, term-scaled fees, and atomic score updates for both seller and buyer.",
+                fns: ["createInvoice(address buyer, uint256 amount, uint256 dueDate)", "approveInvoice(uint256 id)", "rejectInvoice(uint256 id)", "lockCollateral(uint256 id)", "payInvoice(uint256 id)", "markDefault(uint256 id)", "feeBpsForTerm(address buyer, uint256 termSeconds)", "sellerScore(address) returns uint256", "buyerScore(address) returns uint256"],
               },
             ].map((c) => (
               <div key={c.name} className="p-6">
@@ -545,7 +545,7 @@ export default function DocsPage() {
           <Card className="divide-y divide-white/[0.05]">
             {[
               { term: "Invoice factoring", def: "The practice of selling an unpaid invoice to a third party at a discount in exchange for immediate cash. Float implements this on-chain with USDC." },
-              { term: "Advance rate", def: "The percentage of the invoice face value paid to the seller upfront. In Float, this ranges from 75% to 88% depending on the seller's credit score tier." },
+              { term: "Advance rate", def: "The percentage of the invoice face value advanced upfront. In Float v6a, this ranges from 80% to 90% depending on the seller's credit score tier and paid-count gates." },
               { term: "Recourse model", def: "A factoring arrangement where the seller remains liable if the buyer fails to pay. The opposite is non-recourse, where the factor absorbs the loss." },
               { term: "Share value", def: "totalAssets divided by totalShares in FloatPool. This number starts at 1.0 USDC per share and increases as repayments accumulate. It never decreases on repayment." },
               { term: "Credit score", def: "A 0 to 100 integer stored on-chain per seller, computed as paidCount * 100 / totalCount. Determines the advance tier applied to new invoices." },

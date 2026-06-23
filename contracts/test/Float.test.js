@@ -218,6 +218,81 @@ describe("Float v6 — economic recalibration", function () {
   });
 
   // ─── v5 strict collateral (still ON) ────────────────────────────────────────────
+  describe("Buyer-financed mode (v6b)", function () {
+    async function createAndApproveBuyerFinanced(face, dueOffsetDays = 30) {
+      const due = (await time.latest()) + dueOffsetDays * DAY;
+      await core.connect(seller).createInvoice(buyer.address, face, due);
+      const id = (await core.invoiceCount()) - 1n;
+      await core.connect(buyer).approveInvoice(id);
+      return { id, due };
+    }
+
+    it("can create and finance an invoice with zero LP liquidity", async function () {
+      const sBefore = await usdc.balanceOf(seller.address);
+      const bBefore = await usdc.balanceOf(buyer.address);
+      const { id } = await createAndApproveBuyerFinanced(USDC(1000));
+
+      await core.connect(buyer).financeAsBuyer(id);
+      const inv = await core.getInvoice(id);
+
+      expect(inv.status).to.equal(Status.FUNDED);
+      expect(inv.financier).to.equal(1);
+      expect(inv.amountPaid).to.equal(USDC(800));
+      expect(inv.collateral).to.equal(0);
+      expect(inv.stake).to.equal(0);
+      expect((await usdc.balanceOf(seller.address)) - sBefore).to.equal(USDC(800));
+      expect((await usdc.balanceOf(buyer.address)) - bBefore).to.equal(-USDC(800));
+      await assertPoolInvariant();
+    });
+
+    it("settles with buyer keeping 75% of the fee as discount", async function () {
+      const sBefore = await usdc.balanceOf(seller.address);
+      const bBefore = await usdc.balanceOf(buyer.address);
+      const tBefore = await usdc.balanceOf(stranger.address);
+      const { id, due } = await createAndApproveBuyerFinanced(USDC(1000));
+
+      await core.connect(buyer).financeAsBuyer(id);
+      const [amountDue, discount] = await core.earlyRepayAmount(id);
+      expect(amountDue).to.equal(USDC(177.5));
+      expect(discount).to.equal(USDC(22.5));
+      await time.increaseTo(due);
+      await expect(core.connect(buyer).payInvoice(id))
+        .to.emit(core, "InvoicePaid")
+        .withArgs(id, buyer.address, USDC(1000), USDC(22.5));
+
+      expect((await core.getInvoice(id)).status).to.equal(Status.PAID);
+      expect((await usdc.balanceOf(seller.address)) - sBefore).to.equal(USDC(970));
+      expect((await usdc.balanceOf(buyer.address)) - bBefore).to.equal(-USDC(977.5));
+      expect((await usdc.balanceOf(stranger.address)) - tBefore).to.equal(USDC(3));
+      expect(await pool.insuranceReserve()).to.equal(USDC(4.5));
+      await assertPoolInvariant();
+    });
+
+    it("rejects partial payments in buyer-financed mode", async function () {
+      const { id } = await createAndApproveBuyerFinanced(USDC(1000));
+      await core.connect(buyer).financeAsBuyer(id);
+
+      await expect(core.connect(buyer).payPartial(id, USDC(10)))
+        .to.be.revertedWithCustomError(core, "PartialNotAllowedInBuyerMode");
+    });
+
+    it("default causes zero LP loss in buyer-financed mode", async function () {
+      await pool.connect(investor).deposit(USDC(10_000));
+      const lpBefore = await pool.investorAssets();
+      const { id, due } = await createAndApproveBuyerFinanced(USDC(1000));
+
+      await core.connect(buyer).financeAsBuyer(id);
+      expect(await pool.investorAssets()).to.equal(lpBefore);
+
+      await time.increaseTo(due + 7 * DAY + 1);
+      await core.connect(stranger).markDefault(id);
+
+      expect((await core.getInvoice(id)).status).to.equal(Status.DEFAULTED);
+      expect(await pool.investorAssets()).to.equal(lpBefore);
+      await assertPoolInvariant();
+    });
+  });
+
   describe("Strict collateral (v5, carried)", function () {
     it("UNVERIFIED buyer fully collateralized: collateral + stake >= advance", async function () {
       await pool.connect(investor).deposit(USDC(10_000));

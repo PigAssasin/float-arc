@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./FloatPool.sol";
 
-/// @title FloatCore v4 — Invoice lifecycle: seller stake, size cap, insurance, partial repayment, anti-Sybil hooks
+/// @title FloatCore v6a - Invoice lifecycle, seller stake, collateral, insurance, and fee settlement
 contract FloatCore is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
@@ -47,7 +47,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
     uint256 public constant GRACE_PERIOD        = 7 days;
     uint256 public constant APPROVAL_TIMEOUT    = 72 hours;
     uint256 public constant COLLATERAL_TIMEOUT  = 48 hours;
-    uint256 public constant MAX_DISCOUNT_BPS    = 200;   // 2% max early repayment discount
+    uint256 public constant MAX_DISCOUNT_BPS    = 200;   // legacy v4/v5, unused in v6a settlement
     uint256 public constant INSURANCE_FEE_BPS   = 100;   // (legacy v5, unused in v6 settle)
     uint256 public constant MAX_INVOICE_BPS     = 2000;  // single invoice advance max = 20% of available liquidity
 
@@ -56,9 +56,9 @@ contract FloatCore is ReentrancyGuard, Ownable {
     uint256 public constant PROTOCOL_FEE_BPS    = 1000;  // protocol takes 10% of the fee
     uint256 public constant INSURANCE_SHARE_BPS = 1500;  // 15% of the fee funds the insurance reserve
     // remainder (75%) of the fee accrues to LPs (mode 1)
-    // v6b mode 2 (buyer-financed): buyer keeps 60% of the fee as a discount; the rest is
-    // protocol 10% + insurance 15% + LP origination 15% (no LP capital at risk).
-    uint256 public constant BUYER_DISCOUNT_BPS  = 6000;  // buyer keeps 60% of the fee in mode 2
+    // v6b mode 2 (buyer-financed): buyer keeps 75% of the fee as a discount.
+    // The remaining fee is protocol 10% + insurance 15%; no LP capital is at risk.
+    uint256 public constant BUYER_DISCOUNT_BPS  = 7500;  // buyer keeps 75% of the fee in mode 2
 
     // ─── State ────────────────────────────────────────────────────────────────
 
@@ -247,14 +247,9 @@ contract FloatCore is ReentrancyGuard, Ownable {
         // v6 guard: advance + fee must leave a non-negative residual for the seller
         if (advance + fee > amount) revert AdvancePlusFeeExceedsFace(advance, fee, amount);
 
-        // Check pool liquidity covers the advance (buyer collateral + seller stake arrive later)
-        uint256 liquidity = pool.availableLiquidity();
-        if (liquidity < advance)
-            revert InsufficientPoolLiquidity(advance, liquidity);
-
-        // Single-invoice size cap: advance must not exceed 20% of available pool liquidity
-        if (liquidity > 0 && advance > (liquidity * MAX_INVOICE_BPS) / 10_000)
-            revert InvoiceTooLarge(advance, (liquidity * MAX_INVOICE_BPS) / 10_000);
+        // Pool liquidity is checked at lockCollateral for pool-financed invoices.
+        // Buyer-financed invoices can be created even when LP liquidity is low because
+        // the buyer funds the advance themselves in financeAsBuyer.
 
         id = invoiceCount++;
         invoices[id] = Invoice({
@@ -392,8 +387,8 @@ contract FloatCore is ReentrancyGuard, Ownable {
     // ─── Buyer: pay invoice ────────────────────────────────────────────────────
 
     /// Pay the full remaining balance of a funded invoice in one shot.
-    /// Early repayment of the remainder earns a discount (up to 2%).
-    /// On settlement: collateral returned to buyer, stake to seller, 1% fee to insurance.
+    /// v6a has no early repayment discount.
+    /// On settlement: collateral returns to buyer, stake returns to seller, and fee shares settle.
     function payInvoice(uint256 id) external nonReentrant {
         Invoice storage inv = invoices[id];
         if (inv.seller == address(0)) revert InvoiceNotFound(id);
@@ -403,10 +398,11 @@ contract FloatCore is ReentrancyGuard, Ownable {
 
         uint256 remaining = inv.amount - inv.amountPaid;
 
-        // v6b: a self-financing buyer keeps 60% of the fee as a discount, so they pay less.
+        // v6b: a self-financing buyer keeps 75% of the fee as a discount, so they pay less.
         uint256 pull = remaining;
+        uint256 buyerDiscount = 0;
         if (inv.financier == Financier.BUYER) {
-            uint256 buyerDiscount = (inv.fee * BUYER_DISCOUNT_BPS) / 10_000;
+            buyerDiscount = (inv.fee * BUYER_DISCOUNT_BPS) / 10_000;
             pull = remaining > buyerDiscount ? remaining - buyerDiscount : 0;
         }
 
@@ -415,7 +411,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
 
         // INTERACTIONS
         if (pull > 0) usdc.safeTransferFrom(msg.sender, address(pool), pull);
-        _settle(id);
+        _settle(id, buyerDiscount);
     }
 
     /// Pay an installment toward a funded invoice. Auto-settles when the cumulative
@@ -441,14 +437,14 @@ contract FloatCore is ReentrancyGuard, Ownable {
         usdc.safeTransferFrom(msg.sender, address(pool), payAmount);
 
         if (inv.amountPaid == inv.amount) {
-            _settle(id);
+            _settle(id, 0);
         }
     }
 
     /// Finalize a fully-covered invoice (v6). Buyer has paid the full face into the pool.
     /// Return collateral + stake, split the fee (protocol + insurance + LP), and return the
     /// residual (face - advance - fee) to the seller. Seller's true cost is the fee only.
-    function _settle(uint256 id) internal {
+    function _settle(uint256 id, uint256 discount) internal {
         Invoice storage inv = invoices[id];
 
         uint256 fee          = inv.fee;
@@ -466,7 +462,7 @@ contract FloatCore is ReentrancyGuard, Ownable {
             outstandingBuyerAdvance[inv.buyer] -= inv.advance;
         }
 
-        emit InvoicePaid(id, inv.buyer, inv.amount, fee);
+        emit InvoicePaid(id, inv.buyer, inv.amount, discount);
         emit CollateralReturned(id, inv.buyer, inv.collateral);
         emit SellerStakeReturned(id, inv.seller, inv.stake);
         emit SellerScoreUpdated(inv.seller, sellerScore(inv.seller));
@@ -643,13 +639,19 @@ contract FloatCore is ReentrancyGuard, Ownable {
         return bps > FEE_CAP_BPS ? FEE_CAP_BPS : bps;
     }
 
-    /// Preview the cost to pay off the REMAINING balance of a FUNDED invoice now.
-    /// v6: the buyer always pays the full remaining face (no early-repay discount).
-    /// Kept for frontend compatibility; discount is always 0.
+    /// Preview the cost to settle a FUNDED invoice now.
+    /// Pool-financed invoices pay the full remaining face. Buyer-financed invoices
+    /// pay the remaining face minus the buyer's v6b fee discount.
     function earlyRepayAmount(uint256 id) external view returns (uint256 amountDue, uint256 discount) {
         Invoice storage inv = invoices[id];
         if (inv.seller == address(0)) revert InvoiceNotFound(id);
-        return (inv.amount - inv.amountPaid, 0);
+        uint256 remaining = inv.amount - inv.amountPaid;
+        if (inv.financier == Financier.BUYER) {
+            discount = (inv.fee * BUYER_DISCOUNT_BPS) / 10_000;
+            amountDue = remaining > discount ? remaining - discount : 0;
+            return (amountDue, discount);
+        }
+        return (remaining, 0);
     }
 
     function getInvoice(uint256 id) external view returns (Invoice memory) {

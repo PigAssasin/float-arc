@@ -96,7 +96,7 @@ export function FloatAssistant() {
     const myShares = poolData?.[3]?.status === "success" ? (poolData[3].result as bigint) : undefined;
     // Only meaningful for sellers; skip for buyer/investor to avoid noise
     const score = role === "seller" && poolData?.[4]?.status === "success" ? Number(poolData[4].result as bigint) : undefined;
-    // Use on-chain bps (sellerAdvanceBps) so new sellers get 75% not 80%
+    // Use on-chain bps (sellerAdvanceBps) so displayed rates follow the deployed tier logic.
     const advanceBps = role === "seller" && poolData?.[5]?.status === "success" ? Number(poolData[5].result as bigint) : undefined;
 
     const advanceRate = advanceBps !== undefined ? advanceBps / 100 : undefined;

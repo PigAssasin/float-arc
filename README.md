@@ -2,9 +2,7 @@
 
 > **Float your invoices. SMEs get paid today, not in 90 days.**
 
-Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). v6a is the current live economics: small businesses upload invoices, receive an immediate USDC advance, and the seller receives the residual back at settlement. Buyers pay at maturity. Liquidity providers earn yield from a fixed, public fee schedule.
-
-v6b buyer finance remains deferred for now; the shipped flow is the pool-financed v6a path.
+Float is a decentralized invoice factoring protocol on [Arc Testnet](https://arc.network). v6b is the current live version: small businesses upload invoices, receive an immediate USDC advance, and the seller receives the residual back at settlement. Buyers can use the standard pool-financed collateral path or self-finance the advance and keep 75% of the fee as a discount.
 
 **Live demo:** [floatsme.xyz](https://floatsme.xyz) · [float-arc.vercel.app](https://float-arc.vercel.app)
 
@@ -85,8 +83,8 @@ Deployed on Arc Testnet:
 
 | Contract | Address |
 |----------|---------|
-| FloatPool (ERC20 `fLP`) | `0x866Af692C71D9e1d191be551981c546870413484` |
-| FloatCore | `0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD` |
+| FloatPool (ERC20 `fLP`) | `0xCaC5c72a870fB989093e68F98027aa0639a4Bf77` |
+| FloatCore | `0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637` |
 | USDC | `0x3600000000000000000000000000000000000000` |
 
 ### FloatCore
@@ -96,8 +94,9 @@ Manages the full invoice lifecycle:
 - `createInvoice(buyer, amount, dueDate)` — seller creates invoice
 - `approveInvoice(id)` — buyer approves
 - `lockCollateral(id)` — buyer locks collateral, pool funds advance
-- `payInvoice(id)` — buyer repays the remaining balance; no early-payment discount in v6a
-- `payPartial(id, amount)` — buyer repays in installments; auto-settles at face value
+- `financeAsBuyer(id)` — buyer funds the advance directly and keeps 75% of the fee as a discount at settlement
+- `payInvoice(id)` — buyer repays the remaining balance; pool-financed invoices have no early-payment discount
+- `payPartial(id, amount)` — buyer repays pool-financed invoices in installments; auto-settles at face value
 - `markDefault(id)` — anyone can call after grace period expires
 - `sellerScore(address)` / `sellerAdvanceBps(address)` / `sellerStakeBps(address)` — credit system
 - `buyerFeeBpsPer30d(address)` / `feeBpsForTerm(address, termSeconds)` — fixed public fee schedule

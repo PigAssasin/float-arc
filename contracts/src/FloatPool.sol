@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @title FloatPool v4 — Tokenized investor vault (fLP) with buyer collateral,
+/// @title FloatPool v6a - Tokenized investor vault (fLP) with buyer collateral,
 ///        seller stake, and a bounded insurance reserve.
 /// @dev LP shares are a transferable ERC20 ("Float LP" / fLP, 6 decimals to match USDC).
 contract FloatPool is ERC20, ReentrancyGuard, Ownable {

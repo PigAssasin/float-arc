@@ -20,7 +20,7 @@ const CARDS = [
     title: "Instant Advance.",
     items: [
       "Upload invoice → receive USDC same day",
-      "Advance rate 75–88% based on credit score",
+      "Advance rate 80-90% based on credit score",
       "No bank approval, no paperwork",
       "Recourse model: you stay in control",
     ],
@@ -31,7 +31,7 @@ const CARDS = [
     title: "On-chain Credit Score.",
     items: [
       "Score built from your payment history",
-      "Higher score = higher advance rate (88% max)",
+      "Higher score = higher advance rate (90% max)",
       "Fully transparent, calculated on-chain",
       "Resets never. Your history is permanent.",
     ],

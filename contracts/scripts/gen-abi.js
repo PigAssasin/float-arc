@@ -6,8 +6,8 @@ const root = path.resolve(__dirname, "../..");
 const poolArt = require(path.join(root, "contracts/artifacts/src/FloatPool.sol/FloatPool.json"));
 const coreArt = require(path.join(root, "contracts/artifacts/src/FloatCore.sol/FloatCore.json"));
 
-const POOL = "0x866Af692C71D9e1d191be551981c546870413484";
-const CORE = "0xadAf850c7EA6Bb6c14bD91A41B6B2168A91142bD";
+const POOL = "0xCaC5c72a870fB989093e68F98027aa0639a4Bf77";
+const CORE = "0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637";
 
 const file = path.join(root, "src/lib/contracts.ts");
 let src = fs.readFileSync(file, "utf8");

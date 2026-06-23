@@ -153,7 +153,7 @@ function ApprovalCard({ inv }: { inv: OnChainInvoice }) {
 // ── Collateral card (PENDING_COLLATERAL) ─────────────────────────────────────
 
 function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${string}` }) {
-  const { data: allowance } = useReadContract({
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: CONTRACTS.USDC,
     abi: ERC20ABI,
     functionName: "allowance",
@@ -163,24 +163,38 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
 
   const { writeContract: approveUSDC, data: approveTxHash, isPending: approvePending, error: approveError } = useWriteContract();
   const { writeContract: lockWrite, data: lockTxHash, isPending: lockPending, error: lockError } = useWriteContract();
+  const { writeContract: financeWrite, data: financeTxHash, isPending: financePending, error: financeError } = useWriteContract();
   const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash, confirmations: 1 });
   const { isSuccess: locked } = useWaitForTransactionReceipt({ hash: lockTxHash, confirmations: 1 });
+  const { isSuccess: financed } = useWaitForTransactionReceipt({ hash: financeTxHash, confirmations: 1 });
+
+  useEffect(() => {
+    if (approveConfirmed) refetchAllowance();
+  }, [approveConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const collateralFmt = Number(formatUnits(inv.collateral, USDC_DECIMALS)).toLocaleString();
   const advanceFmt = Number(formatUnits(inv.advance, USDC_DECIMALS)).toLocaleString();
-  const hasAllowance = allowance !== undefined && allowance >= inv.collateral;
-  const canLock = hasAllowance || approveConfirmed;
+  const feeFmt = Number(formatUnits(inv.fee, USDC_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const buyerDiscount = (inv.fee * BigInt(7500)) / BigInt(10000);
+  const buyerDiscountFmt = Number(formatUnits(buyerDiscount, USDC_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const approvalAmount = inv.advance > inv.collateral ? inv.advance : inv.collateral;
+  const hasLockAllowance = allowance !== undefined && allowance >= inv.collateral;
+  const hasFinanceAllowance = allowance !== undefined && allowance >= inv.advance;
+  const canLock = hasLockAllowance || approveConfirmed;
+  const canFinance = hasFinanceAllowance || approveConfirmed;
 
-  if (locked) {
+  if (locked || financed) {
     return (
       <div className="rounded-2xl border border-[#22c55e]/20 bg-[#22c55e]/[0.04] p-5 flex items-center gap-3">
         <CheckCircle2 className="w-5 h-5 text-[#22c55e] shrink-0" />
         <div>
-          <p className="text-[#22c55e] text-sm font-medium">Collateral locked — advance sent to seller</p>
+          <p className="text-[#22c55e] text-sm font-medium">
+            {financed ? "Buyer-financed advance sent to seller" : "Collateral locked, advance sent to seller"}
+          </p>
           <p className="text-gray-500 text-xs">${advanceFmt} USDC sent to seller. Invoice is now active.</p>
         </div>
-        {lockTxHash && (
-          <a href={`https://testnet.arcscan.app/tx/${lockTxHash}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-gray-500 underline hover:text-gray-300">View tx</a>
+        {(lockTxHash || financeTxHash) && (
+          <a href={`https://testnet.arcscan.app/tx/${lockTxHash ?? financeTxHash}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-gray-500 underline hover:text-gray-300">View tx</a>
         )}
       </div>
     );
@@ -233,7 +247,7 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
         </div>
         {!canLock ? (
           <button
-            onClick={() => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, inv.collateral], chainId: arcTestnet.id })}
+            onClick={() => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, approvalAmount], chainId: arcTestnet.id })}
             disabled={approvePending}
             className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border border-yellow-400/30 text-yellow-300 bg-yellow-400/[0.08] hover:bg-yellow-400/[0.14] disabled:opacity-50 transition-all"
           >
@@ -265,12 +279,31 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
         </button>
       </div>
 
-      <TxError error={(approveError || lockError) as Error | null} />
+      <div className="mt-5 rounded-xl border border-[#DEDBC8]/10 bg-[#DEDBC8]/[0.035] p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <p className="text-[#DEDBC8] text-sm font-medium">Buyer finance option</p>
+            <p className="text-gray-500 text-xs mt-1">
+              Fund the ${advanceFmt} advance yourself, skip collateral, and keep ${buyerDiscountFmt} of the ${feeFmt} fee as your discount.
+            </p>
+          </div>
+          <button
+            onClick={() => financeWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "financeAsBuyer", args: [inv.id], chainId: arcTestnet.id })}
+            disabled={!canFinance || financePending}
+            className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-medium border border-[#DEDBC8]/25 text-[#DEDBC8] bg-[#DEDBC8]/[0.08] hover:bg-[#DEDBC8]/[0.15] disabled:opacity-50 transition-all"
+          >
+            {financePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+            {canFinance ? "Finance as Buyer" : "Approve first"}
+          </button>
+        </div>
+      </div>
+
+      <TxError error={(approveError || lockError || financeError) as Error | null} />
     </div>
   );
 }
 
-// ── Funded card (FUNDED) — with early repayment discount ────────────────────
+// Funded card (FUNDED), buyer repays the full face value in v6a.
 
 function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address: `0x${string}`; onSettled?: () => void }) {
   const { data: earlyRepay } = useReadContract({
@@ -318,6 +351,7 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
   const isUrgent = daysLeft <= 14;
   const pastGrace = daysLeft <= -7; // past dueDate + 7-day grace period
   const hasDiscount = discount > BigInt(0);
+  const isBuyerFinanced = inv.financier === 1;
 
   // Installments: how much of the face value has already been paid
   const amountPaidSoFar = inv.amountPaid;
@@ -338,7 +372,9 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
         <CheckCircle2 className="w-5 h-5 text-[#22c55e] shrink-0" />
         <div>
           <p className="text-[#22c55e] text-sm font-medium">Invoice #{String(inv.id)} paid</p>
-          <p className="text-gray-500 text-xs">Collateral ${collateralFmt} returned to your wallet.</p>
+          <p className="text-gray-500 text-xs">
+            {isBuyerFinanced ? "Buyer-financed invoice settled with your discount." : `Collateral $${collateralFmt} returned to your wallet.`}
+          </p>
         </div>
         {payTxHash && (
           <a href={`https://testnet.arcscan.app/tx/${payTxHash}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-gray-500 underline hover:text-gray-300">View tx</a>
@@ -353,7 +389,9 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
         <div>
           <p className="text-red-400 text-sm font-medium">Invoice #{String(inv.id)} marked as defaulted</p>
-          <p className="text-gray-500 text-xs">Collateral ${collateralFmt} has been slashed to the pool.</p>
+          <p className="text-gray-500 text-xs">
+            {isBuyerFinanced ? "No LP capital was at risk in this buyer-financed invoice." : `Collateral $${collateralFmt} has been slashed to the pool.`}
+          </p>
         </div>
       </div>
     );
@@ -380,7 +418,7 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
             {isUrgent && !pastGrace && <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />}
             {hasDiscount && !pastGrace && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
-                Save ${discountFmt} early
+                {isBuyerFinanced ? `Buyer finance discount $${discountFmt}` : `Save $${discountFmt}`}
               </span>
             )}
             <span className="ml-auto text-[10px] font-mono text-gray-500">#{String(inv.id)}</span>
@@ -392,17 +430,23 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
             <DueBadge daysLeft={daysLeft} />
             <span>Due {new Date(Number(inv.dueDate) * 1000).toLocaleDateString()}</span>
             <span>·</span>
-            <span>Collateral locked: <span className="text-yellow-300">${collateralFmt}</span></span>
+            <span>
+              {isBuyerFinanced ? "Buyer-financed" : <>Collateral locked: <span className="text-yellow-300">${collateralFmt}</span></>}
+            </span>
           </div>
           {pastGrace && (
             <p className="text-red-400 text-xs mt-2 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 shrink-0" />
-              Grace period over. Pay now or this invoice will be marked as defaulted and your ${collateralFmt} collateral will be slashed.
+              {isBuyerFinanced
+                ? "Grace period over. Pay now or this buyer-financed invoice can be marked as defaulted."
+                : `Grace period over. Pay now or this invoice will be marked as defaulted and your $${collateralFmt} collateral will be slashed.`}
             </p>
           )}
           {!pastGrace && hasDiscount && (
             <p className="text-green-400 text-xs mt-2">
-              Pay now to save ${discountFmt} (early repayment discount)
+              {isBuyerFinanced
+                ? `Buyer-financed mode reduces your remaining payment by $${discountFmt}.`
+                : `Contract reports a $${discountFmt} repayment adjustment.`}
             </p>
           )}
         </div>
@@ -444,7 +488,7 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
       </div>
 
       {/* Installments / partial repayment */}
-      {!pastGrace && (
+      {!pastGrace && !isBuyerFinanced && (
         <div className="mt-4 pt-4 border-t border-white/[0.06]">
           {hasPartial && (
             <div className="mb-3">
@@ -733,7 +777,7 @@ export default function BuyerPage() {
             {[
               { num: "01", title: "Approve invoice", desc: "Seller creates an invoice. You verify it is legitimate and approve on-chain." },
               { num: "02", title: "Lock collateral", desc: "Lock a USDC deposit. Returned when you pay. Protects the pool from fraud." },
-              { num: "03", title: "Pay invoice", desc: "Pay at or before due date. Early payment earns up to 2% discount." },
+              { num: "03", title: "Pay invoice", desc: "Pay the full face value at or before due date. v6a has no early-payment discount." },
               { num: "04", title: "Score improves", desc: "On-time payments build your buyer credit score, reducing future collateral requirements." },
             ].map((item) => (
               <div key={item.num} className="sm:px-5 first:sm:pl-0 last:sm:pr-0 flex gap-3">

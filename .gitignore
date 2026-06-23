@@ -44,4 +44,5 @@ CLAUDE.md
 
 # AI tooling (internal)
 .claude/
+.codex/
 docs/superpowers/

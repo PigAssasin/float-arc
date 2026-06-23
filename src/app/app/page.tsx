@@ -15,9 +15,9 @@ const ROLES = [
     headline: "Float your invoices.",
     desc: "Upload an invoice and receive USDC upfront, same day. No bank. No waiting.",
     stats: [
-      { label: "Max advance", value: "88%" },
+      { label: "Max advance", value: "90%" },
       { label: "Settlement", value: "<1s" },
-      { label: "Float fee", value: "12-25%" },
+      { label: "Fee cap", value: "8%" },
     ],
     href: "/app/seller",
     glow: "rgba(222,219,200,0.07)",
@@ -51,7 +51,7 @@ const ROLES = [
     headline: "Earn yield on USDC.",
     desc: "Deposit into the pool. Earn from every invoice advance. Withdraw anytime.",
     stats: [
-      { label: "Spread", value: "12-25%" },
+      { label: "LP fee share", value: "75%" },
       { label: "Settlement", value: "<1s" },
       { label: "Withdraw", value: "anytime" },
     ],
