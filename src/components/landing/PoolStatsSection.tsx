@@ -61,19 +61,22 @@ export function PoolStatsSection() {
   // ── derived stats ──────────────────────────────────────────────────────────
   const tvl = totalAssets ? Number(formatUnits(totalAssets, USDC_DECIMALS)) : null;
 
+  // InvoiceStatus enum:
+  // 0 PENDING_APPROVAL, 1 PENDING_COLLATERAL, 2 FUNDED, 3 PAID, 4 DEFAULTED, 5 CANCELLED
   let funded = 0, paid = 0, defaulted = 0, totalVolume = 0, totalAdvance = 0;
   allInvoices?.forEach((r) => {
     if (r.status !== "success" || !r.result) return;
     const inv = r.result as { amount: bigint; advance: bigint; status: number };
     totalVolume += Number(formatUnits(inv.amount, USDC_DECIMALS));
     totalAdvance += Number(formatUnits(inv.advance, USDC_DECIMALS));
-    if (inv.status === 0) funded++;
-    else if (inv.status === 1) paid++;
-    else if (inv.status === 2) defaulted++;
+    if (inv.status === 2) funded++;
+    else if (inv.status === 3) paid++;
+    else if (inv.status === 4) defaulted++;
   });
 
   const avgAdvanceRate = totalVolume > 0 ? ((totalAdvance / totalVolume) * 100).toFixed(1) : null;
-  const defaultRate = count > 0 ? ((defaulted / count) * 100).toFixed(1) : "0.0";
+  const resolvedCount = paid + defaulted;
+  const defaultRate = resolvedCount > 0 ? ((defaulted / resolvedCount) * 100).toFixed(1) : "0.0";
 
   // shareValue is 1e18 scaled; yield = (shareValue - 1e18) / 1e18 * 100
   const yieldPct = shareValue
