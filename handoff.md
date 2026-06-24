@@ -59,6 +59,7 @@ Optional next work:
 
 - Manual production wallet walkthrough with seller, buyer, and investor wallets.
 - Submission video and screenshot polish.
+- Public Dune dashboard for deeper protocol analytics and investor reporting.
 - Optional VPS mirror if needed.
 - Mainnet KYC design with a dedicated attestor key.
 

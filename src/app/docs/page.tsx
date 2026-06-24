@@ -544,6 +544,12 @@ export default function DocsPage() {
               When APS testnet becomes publicly available, Float's contracts can be redeployed to the private pEVM with minimal modifications. The public-facing entry point would shield USDC into the private environment, execute the invoice lifecycle privately, and unshield repayments back to the public chain. The net effect: all invoice economics remain identical, but the amounts, parties, and scores become confidential.
             </p>
           </Card>
+          <Card className="p-5 mt-4">
+            <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-3">Analytics roadmap</p>
+            <p className="text-gray-500 text-sm leading-relaxed">
+              Float also plans to publish a dedicated Dune dashboard for deeper protocol analytics. That dashboard would break down pool-financed versus buyer-financed volume, realized fee flows, defaults, utilization, and longer-term investor performance without overloading the public homepage.
+            </p>
+          </Card>
         </motion.section>
 
         {/* Glossary */}

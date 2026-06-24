@@ -210,6 +210,7 @@ A good verification system for Float should answer four questions:
 - Manual review queue for higher invoice sizes
 - Compliance event logs for every trust decision
 - Shared-ownership checks to catch buyer and seller controlled by the same people
+- A public Dune dashboard for detailed pool analytics, invoice cohorts, yield breakdowns, and financing-mode trends
 
 ---
 

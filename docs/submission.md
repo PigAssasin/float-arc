@@ -175,6 +175,13 @@ trust that the buyer is real and independent from the seller.
 - AI assistant with live pool, score, and invoice context
 - Production deployment at https://floatsme.xyz
 
+## Future improvements
+
+- Public Dune dashboard for detailed analytics
+- Historical yield and utilization breakdowns
+- Separate views for pool-financed and buyer-financed activity
+- Deeper investor reporting for share value, defaults, and fee flows
+
 ## Test status
 
 - Hardhat contract tests: 29 passing
