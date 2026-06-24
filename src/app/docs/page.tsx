@@ -67,6 +67,14 @@ const FAQ = [
     a: "Float is a hackathon prototype on Arc Testnet. Contracts use OpenZeppelin libraries, ReentrancyGuard, and the checks-effects-interactions pattern, but have not undergone a formal security audit. Do not use with real funds.",
   },
   {
+    q: "What does verified buyer mean?",
+    a: "On testnet, verified status is only a demo switch used to unlock lighter collateral. In production, it should mean the buyer passed real identity checks, sanctions screening, and wallet ownership checks, and was confirmed to be separate from the seller.",
+  },
+  {
+    q: "Why is verification so important?",
+    a: "Verification is what makes light collateral safe enough to offer. Without strong verification, a seller and buyer could collude around a fake invoice. That is why unverified buyers stay in strict collateral mode and why production should use a dedicated attestor service instead of a self-serve toggle.",
+  },
+  {
     q: "What happens to my credit score if I default?",
     a: "After markDefault() is called, your total invoice count increases while your paid count stays the same, dropping the score ratio. This reduces your advance rate on all future invoices and is permanently recorded on-chain.",
   },

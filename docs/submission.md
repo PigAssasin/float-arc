@@ -125,6 +125,33 @@ Fee cap: 8% of invoice face value.
 - Strict collateral mode applies to unverified buyers.
 - Buyer-financed invoices create zero LP loss because the buyer funds the advance directly.
 
+## Verification approach
+
+Verification is where Float draws the line between a demo and a production credit protocol.
+
+Today, testnet verification is intentionally lightweight. The `/api/verify` route can mark an
+address as verified so the demo can show both strict-collateral and light-collateral paths without
+forcing users through a real KYC flow.
+
+For production, that is not enough. The protocol should only grant lighter collateral treatment
+after a real identity process confirms that:
+
+- the buyer is a real business
+- the seller is a real business
+- the buyer and seller are not the same entity
+- the verified wallet is actually controlled by the approved party
+
+Recommended production design:
+
+1. Run KYC through Didit or a similar provider.
+2. Add sanctions and AML screening before trust is granted.
+3. Use a dedicated attestor key to call `setVerified`.
+4. Keep verification records off-chain and map them to the approved wallet.
+5. Support revocation and renewal if risk changes.
+
+This matters because light collateral only makes sense when the protocol has a strong reason to
+trust that the buyer is real and independent from the seller.
+
 ## Technical stack
 
 | Layer | Technology |

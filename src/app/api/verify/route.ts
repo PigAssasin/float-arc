@@ -4,11 +4,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "@/lib/wagmi-config";
 import { CONTRACTS, FloatCoreABI } from "@/lib/contracts";
 
-// Attestor endpoint for the v5 verification gate. On testnet this self-serve route
-// instantly marks an address verified (no real KYC) so verified buyers unlock light,
-// tier-based collateral. In PRODUCTION this is where Circle Compliance / KYC screening
-// runs before granting verification, and a dedicated minimally-funded attestor key
-// (not the owner key) should sign setVerified.
+// Testnet verification endpoint. This route is intentionally self-serve so the demo can
+// show both collateral modes without real KYC. In production, this endpoint should sit
+// behind a real identity and compliance flow, and a dedicated attestor key should sign
+// setVerified after the buyer or seller passes review.
 
 const RPC = "https://rpc.testnet.arc.network";
 
@@ -38,7 +37,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST { address } → mark verified (testnet self-serve)
+// POST { address } -> mark verified for testnet demo purposes
 export async function POST(req: NextRequest) {
   try {
     const { address } = await req.json();

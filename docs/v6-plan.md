@@ -107,6 +107,29 @@ If the buyer defaults in this mode, LPs lose nothing because the buyer already f
 | Partial payment edge cases | Partial payments disabled in buyer-financed mode |
 | Owner key risk | Testnet only. Mainnet should use a dedicated attestor key |
 
+## Verification guidance
+
+Verification is the control that makes light collateral acceptable.
+
+If buyer verification is weak, the protocol should behave as if the buyer is untrusted and keep
+strict collateral in place. Economics alone can defend against some fake-invoice attacks, but
+identity is what turns a "high-friction safe mode" into a usable credit product.
+
+Recommended production requirements:
+
+- verify buyer and seller as separate legal entities
+- verify wallet ownership for each party
+- use a dedicated attestor service, not the owner key
+- record approval source, timestamp, and review status off-chain
+- support revocation and renewal
+- keep buyer-financed mode open because it does not expose LP capital
+
+Practical rule:
+
+- no real identity, no light collateral
+- no separation of buyer and seller identity, no trusted status
+- no attestor separation, no production launch
+
 ## Delivery checklist
 
 Phase A: economic recalibration

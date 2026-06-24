@@ -151,6 +151,66 @@ Float uses several layers of protection:
 Testnet verification is intentionally frictionless for demo purposes. Mainnet verification is planned
 to use real KYC and a dedicated attestor key.
 
+## Verification roadmap
+
+Verification is the most important trust layer in Float's risk model.
+
+Without strong verification, the protocol can only protect itself with economics:
+
+- heavy collateral for unverified buyers
+- seller stake
+- exposure caps
+- insurance reserve
+
+That is enough to make fake invoices unattractive in strict mode, but it is not enough to justify
+light collateral for buyers who look "trusted" only because they clicked a demo button.
+
+### What testnet does today
+
+The `/api/verify` route is intentionally simple. It marks an address as verified on demand so the
+demo can show both collateral paths without forcing users through a real KYC flow.
+
+This is useful for product demos, but it should not be treated as a real anti-collusion control.
+
+### What production should do
+
+Production verification should prove that the buyer and seller are real, separate business
+identities before they receive any lighter collateral treatment.
+
+Recommended flow:
+
+1. Create a hosted KYC session with Didit for the applicant.
+2. Collect legal business details and beneficial owner details off-chain.
+3. Wait for an approved KYC result and webhook confirmation.
+4. Run AML or sanctions screening before granting trusted status.
+5. Have a dedicated attestor service sign `setVerified`, not the owner key.
+6. Keep an internal record linking each verified on-chain address to the off-chain identity.
+7. Refuse or revoke trusted status if buyer and seller resolve to the same entity or beneficial owner.
+
+### Verification goals
+
+A good verification system for Float should answer four questions:
+
+1. Is this a real legal entity?
+2. Does this wallet belong to that entity?
+3. Is the buyer a different entity from the seller?
+4. Can the protocol revoke or expire trust if the risk profile changes?
+
+### Recommended policy
+
+- Unverified buyers stay in strict collateral mode.
+- Verified buyers unlock light collateral only after identity approval.
+- Buyer-financed mode can stay open because it does not expose LP capital.
+- Trust should be revocable, renewable, and tied to an attestor service with minimal privileges.
+
+### Nice-to-have later
+
+- Expiry timestamps for verification status
+- Separate verification levels for buyer and seller
+- Manual review queue for higher invoice sizes
+- Compliance event logs for every trust decision
+- Shared-ownership checks to catch buyer and seller controlled by the same people
+
 ---
 
 ## Core Contracts
