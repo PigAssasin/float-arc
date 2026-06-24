@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useAppWallet } from "@/hooks/use-app-wallet";
 import { formatUnits, parseUnits } from "viem";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { VerifyBadge } from "@/components/shared/VerifyBadge";
 import { CONTRACTS, FloatCoreABI, ERC20ABI, USDC_DECIMALS, InvoiceStatus } from "@/lib/contracts";
@@ -578,7 +578,7 @@ export default function BuyerPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Buyer dashboard</p>
-        <ConnectButton />
+        <ConnectWalletButton />
       </div>
     );
   }

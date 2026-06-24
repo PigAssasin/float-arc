@@ -1,6 +1,6 @@
 "use client";
 import { useAppWallet } from "@/hooks/use-app-wallet";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowUpRight, TrendingUp, DollarSign, ShieldCheck } from "lucide-react";
@@ -112,7 +112,7 @@ export default function AppHomePage() {
                 SMEs get paid today. Buyers pay at maturity. Investors earn yield. All on-chain, all in USDC.
               </p>
             </div>
-            <ConnectButton />
+            <ConnectWalletButton />
           </div>
         </motion.div>
 

@@ -1,6 +1,5 @@
-import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { createConfig, http } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { injected } from "@wagmi/core";
 import { defineChain, parseGwei } from "viem";
 
 export const arcTestnet = defineChain({
@@ -24,22 +23,11 @@ const transports = {
   [arcTestnet.id]: http("https://rpc.testnet.arc.network", { retryCount: 3, retryDelay: 500 }),
 };
 
-const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-
-// With a WalletConnect projectId → full RainbowKit wallet set (incl. WalletConnect/mobile).
-// Without one → fall back to injected() only (MetaMask, OKX, Rabby...) so localhost and
-// CI never crash on a missing WalletConnect project. Arc Testnet is the only chain.
-export const wagmiConfig = projectId
-  ? getDefaultConfig({
-      appName: "Float",
-      projectId,
-      chains: [arcTestnet],
-      transports,
-      ssr: true,
-    })
-  : createConfig({
-      chains: [arcTestnet],
-      connectors: [injected()],
-      transports,
-      ssr: true,
-    });
+// Arc Testnet is the only chain. The app uses injected browser wallets and Circle Wallets.
+// Keeping the config narrow avoids bundling unused connector code paths.
+export const wagmiConfig = createConfig({
+  chains: [arcTestnet],
+  connectors: [injected()],
+  transports,
+  ssr: true,
+});

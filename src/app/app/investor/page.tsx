@@ -6,7 +6,7 @@ import { useAppWallet } from "@/hooks/use-app-wallet";
 import { useCircleWalletContext } from "@/contexts/circle-wallet-context";
 import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { parseUnits, formatUnits } from "viem";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { CONTRACTS, FloatPoolABI, ERC20ABI, USDC_DECIMALS } from "@/lib/contracts";
 import { arcTestnet } from "@/lib/wagmi-config";
 import { arcPublicClient, pollUntil } from "@/lib/arc-client";
@@ -266,7 +266,7 @@ export default function InvestorPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Investor dashboard</p>
-        <ConnectButton />
+        <ConnectWalletButton />
       </div>
     );
   }

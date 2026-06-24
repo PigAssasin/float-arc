@@ -6,7 +6,7 @@ import { useAppWallet } from "@/hooks/use-app-wallet";
 import { useCircleWalletContext } from "@/contexts/circle-wallet-context";
 import { parseUnits } from "viem";
 import { useMyInvoices, OnChainInvoice } from "@/hooks/use-my-invoices";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { CreditScoreBadge } from "@/components/dashboard/CreditScoreBadge";
 import { InvoiceTable } from "@/components/dashboard/InvoiceTable";
@@ -303,7 +303,7 @@ export default function SellerPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <p className="text-gray-400 text-sm">Connect your wallet to access Seller dashboard</p>
-        <ConnectButton />
+        <ConnectWalletButton />
       </div>
     );
   }

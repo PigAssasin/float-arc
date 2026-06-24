@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { useState } from "react";
 
 const NAV_LINKS = [
@@ -63,11 +63,7 @@ export function DashboardNav() {
 
           {/* Connect wallet */}
           <div className="shrink-0">
-            <ConnectButton
-              accountStatus={{ smallScreen: "avatar", largeScreen: "address" }}
-              chainStatus={{ smallScreen: "none", largeScreen: "icon" }}
-              showBalance={false}
-            />
+            <ConnectWalletButton />
           </div>
         </div>
       </nav>
