@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useBytecode, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useAppWallet } from "@/hooks/use-app-wallet";
-import { formatUnits, parseUnits } from "viem";
+import { useCircleWalletContext } from "@/contexts/circle-wallet-context";
+import { encodeFunctionData, formatUnits, parseUnits } from "viem";
 import { ConnectWalletButton } from "@/components/shared/ConnectWalletButton";
 import { WrongChainBanner } from "@/components/shared/WrongChainBanner";
 import { VerifyBadge } from "@/components/shared/VerifyBadge";
@@ -11,6 +12,34 @@ import { CONTRACTS, FloatCoreABI, ERC20ABI, USDC_DECIMALS, InvoiceStatus } from 
 import { arcTestnet } from "@/lib/wagmi-config";
 import { useMyInvoices, OnChainInvoice } from "@/hooks/use-my-invoices";
 import { CheckCircle2, AlertTriangle, Clock, DollarSign, ShieldCheck, Loader2, AlertCircle, XCircle, Lock, ChevronRight } from "lucide-react";
+import {
+  ARC_MEMO_ABI,
+  ARC_MEMO_ADDRESS,
+  buildFloatMemoData,
+  buildFloatMemoId,
+  type FloatMemoAction,
+  type FloatMemoMode,
+} from "@/lib/arc-memo";
+
+function buildBuyerMemoArgs(
+  invoiceId: bigint,
+  functionName: "lockCollateral" | "financeAsBuyer" | "payInvoice",
+  action: FloatMemoAction,
+  mode: FloatMemoMode,
+) {
+  const innerData = encodeFunctionData({
+    abi: FloatCoreABI,
+    functionName,
+    args: [invoiceId],
+  });
+
+  return [
+    CONTRACTS.FLOAT_CORE,
+    innerData,
+    buildFloatMemoId(invoiceId, action),
+    buildFloatMemoData({ invoiceId, action, mode }),
+  ] as const;
+}
 
 function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
@@ -152,7 +181,18 @@ function ApprovalCard({ inv }: { inv: OnChainInvoice }) {
 
 // ── Collateral card (PENDING_COLLATERAL) ─────────────────────────────────────
 
-function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${string}` }) {
+function CollateralCard({ inv, address, isCircle, memoSupported, memoCapabilityPending }: {
+  inv: OnChainInvoice;
+  address: `0x${string}`;
+  isCircle: boolean;
+  memoSupported: boolean;
+  memoCapabilityPending: boolean;
+}) {
+  const { executeContract } = useCircleWalletContext();
+  const [circlePending, setCirclePending] = useState(false);
+  const [circleApproved, setCircleApproved] = useState(false);
+  const [circleResult, setCircleResult] = useState<"locked" | "financed" | null>(null);
+  const [circleError, setCircleError] = useState<Error | null>(null);
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: CONTRACTS.USDC,
     abi: ERC20ABI,
@@ -180,16 +220,54 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
   const approvalAmount = inv.advance > inv.collateral ? inv.advance : inv.collateral;
   const hasLockAllowance = allowance !== undefined && allowance >= inv.collateral;
   const hasFinanceAllowance = allowance !== undefined && allowance >= inv.advance;
-  const canLock = hasLockAllowance || approveConfirmed;
-  const canFinance = hasFinanceAllowance || approveConfirmed;
+  const canLock = hasLockAllowance || approveConfirmed || circleApproved;
+  const canFinance = hasFinanceAllowance || approveConfirmed || circleApproved;
 
-  if (locked || financed) {
+  async function handleCircleApprove() {
+    setCirclePending(true);
+    setCircleError(null);
+    try {
+      await executeContract({
+        contractAddress: CONTRACTS.USDC,
+        abiFunctionSignature: "approve(address,uint256)",
+        abiParameters: [CONTRACTS.FLOAT_CORE, approvalAmount.toString()],
+      });
+      setCircleApproved(true);
+    } catch (error) {
+      setCircleError(error as Error);
+    } finally {
+      setCirclePending(false);
+    }
+  }
+
+  async function handleCircleMemo(
+    functionName: "lockCollateral" | "financeAsBuyer",
+    action: "lock_collateral" | "buyer_finance",
+    mode: "pool" | "buyer",
+  ) {
+    setCirclePending(true);
+    setCircleError(null);
+    try {
+      await executeContract({
+        contractAddress: ARC_MEMO_ADDRESS,
+        abiFunctionSignature: "memo(address,bytes,bytes32,bytes)",
+        abiParameters: [...buildBuyerMemoArgs(inv.id, functionName, action, mode)],
+      });
+      setCircleResult(functionName === "lockCollateral" ? "locked" : "financed");
+    } catch (error) {
+      setCircleError(error as Error);
+    } finally {
+      setCirclePending(false);
+    }
+  }
+
+  if (locked || financed || circleResult) {
     return (
       <div className="rounded-2xl border border-[#22c55e]/20 bg-[#22c55e]/[0.04] p-5 flex items-center gap-3">
         <CheckCircle2 className="w-5 h-5 text-[#22c55e] shrink-0" />
         <div>
           <p className="text-[#22c55e] text-sm font-medium">
-            {financed ? "Buyer-financed advance sent to seller" : "Collateral locked, advance sent to seller"}
+            {financed || circleResult === "financed" ? "Buyer-financed advance sent to seller" : "Collateral locked, advance sent to seller"}
           </p>
           <p className="text-gray-500 text-xs">${advanceFmt} USDC sent to seller. Invoice is now active.</p>
         </div>
@@ -247,11 +325,13 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
         </div>
         {!canLock ? (
           <button
-            onClick={() => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, approvalAmount], chainId: arcTestnet.id })}
-            disabled={approvePending}
+            onClick={isCircle
+              ? handleCircleApprove
+              : () => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, approvalAmount], chainId: arcTestnet.id })}
+            disabled={approvePending || circlePending}
             className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border border-yellow-400/30 text-yellow-300 bg-yellow-400/[0.08] hover:bg-yellow-400/[0.14] disabled:opacity-50 transition-all"
           >
-            {approvePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {approvePending || circlePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             Approve USDC
           </button>
         ) : (
@@ -265,8 +345,18 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
           2
         </div>
         <button
-          onClick={() => lockWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "lockCollateral", args: [inv.id], chainId: arcTestnet.id })}
-          disabled={!canLock || lockPending}
+          onClick={isCircle
+            ? () => handleCircleMemo("lockCollateral", "lock_collateral", "pool")
+            : memoSupported
+              ? () => lockWrite({
+                  address: ARC_MEMO_ADDRESS,
+                  abi: ARC_MEMO_ABI,
+                  functionName: "memo",
+                  args: buildBuyerMemoArgs(inv.id, "lockCollateral", "lock_collateral", "pool"),
+                  chainId: arcTestnet.id,
+                })
+              : () => lockWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "lockCollateral", args: [inv.id], chainId: arcTestnet.id })}
+          disabled={!canLock || lockPending || circlePending || memoCapabilityPending}
           className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-medium border transition-all disabled:opacity-50"
           style={{
             background: canLock ? "rgba(234,179,8,0.14)" : "rgba(255,255,255,0.03)",
@@ -274,7 +364,7 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
             color: canLock ? "#fde047" : "#4b5563",
           }}
         >
-          {lockPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+          {lockPending || circlePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
           Lock Collateral
         </button>
       </div>
@@ -288,24 +378,46 @@ function CollateralCard({ inv, address }: { inv: OnChainInvoice; address: `0x${s
             </p>
           </div>
           <button
-            onClick={() => financeWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "financeAsBuyer", args: [inv.id], chainId: arcTestnet.id })}
-            disabled={!canFinance || financePending}
+            onClick={isCircle
+              ? () => handleCircleMemo("financeAsBuyer", "buyer_finance", "buyer")
+              : memoSupported
+                ? () => financeWrite({
+                    address: ARC_MEMO_ADDRESS,
+                    abi: ARC_MEMO_ABI,
+                    functionName: "memo",
+                    args: buildBuyerMemoArgs(inv.id, "financeAsBuyer", "buyer_finance", "buyer"),
+                    chainId: arcTestnet.id,
+                  })
+                : () => financeWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "financeAsBuyer", args: [inv.id], chainId: arcTestnet.id })}
+            disabled={!canFinance || financePending || circlePending || memoCapabilityPending}
             className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-medium border border-[#DEDBC8]/25 text-[#DEDBC8] bg-[#DEDBC8]/[0.08] hover:bg-[#DEDBC8]/[0.15] disabled:opacity-50 transition-all"
           >
-            {financePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+            {financePending || circlePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
             {canFinance ? "Finance as Buyer" : "Approve first"}
           </button>
         </div>
       </div>
 
-      <TxError error={(approveError || lockError || financeError) as Error | null} />
+      <TxError error={(circleError || approveError || lockError || financeError) as Error | null} />
     </div>
   );
 }
 
 // Funded card (FUNDED), buyer repays the full face value in v6a.
 
-function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address: `0x${string}`; onSettled?: () => void }) {
+function FundedCard({ inv, address, isCircle, memoSupported, memoCapabilityPending, onSettled }: {
+  inv: OnChainInvoice;
+  address: `0x${string}`;
+  isCircle: boolean;
+  memoSupported: boolean;
+  memoCapabilityPending: boolean;
+  onSettled?: () => void;
+}) {
+  const { executeContract } = useCircleWalletContext();
+  const [circlePending, setCirclePending] = useState(false);
+  const [circleApproved, setCircleApproved] = useState(false);
+  const [circlePaid, setCirclePaid] = useState(false);
+  const [circleError, setCircleError] = useState<Error | null>(null);
   const { data: earlyRepay } = useReadContract({
     address: CONTRACTS.FLOAT_CORE,
     abi: FloatCoreABI,
@@ -363,10 +475,45 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
 
   const partialAmount = partialStr && Number(partialStr) > 0 ? parseUnits(partialStr, USDC_DECIMALS) : BigInt(0);
   const partialValid = partialAmount > BigInt(0) && partialAmount <= remaining;
-  const hasAllowance = (allowance !== undefined && allowance >= amountDue) || approveConfirmed;
+  const hasAllowance = (allowance !== undefined && allowance >= amountDue) || approveConfirmed || circleApproved;
   const hasPartialAllowance = allowance !== undefined && partialAmount > BigInt(0) && allowance >= partialAmount;
 
-  if (paid) {
+  async function handleCircleApprove() {
+    setCirclePending(true);
+    setCircleError(null);
+    try {
+      await executeContract({
+        contractAddress: CONTRACTS.USDC,
+        abiFunctionSignature: "approve(address,uint256)",
+        abiParameters: [CONTRACTS.FLOAT_CORE, amountDue.toString()],
+      });
+      setCircleApproved(true);
+    } catch (error) {
+      setCircleError(error as Error);
+    } finally {
+      setCirclePending(false);
+    }
+  }
+
+  async function handleCirclePay() {
+    setCirclePending(true);
+    setCircleError(null);
+    try {
+      await executeContract({
+        contractAddress: ARC_MEMO_ADDRESS,
+        abiFunctionSignature: "memo(address,bytes,bytes32,bytes)",
+        abiParameters: [...buildBuyerMemoArgs(inv.id, "payInvoice", "pay", isBuyerFinanced ? "buyer" : "pool")],
+      });
+      setCirclePaid(true);
+      onSettled?.();
+    } catch (error) {
+      setCircleError(error as Error);
+    } finally {
+      setCirclePending(false);
+    }
+  }
+
+  if (paid || circlePaid) {
     return (
       <div className="rounded-2xl border border-[#22c55e]/20 bg-[#22c55e]/[0.04] p-5 flex items-center gap-3">
         <CheckCircle2 className="w-5 h-5 text-[#22c55e] shrink-0" />
@@ -453,17 +600,29 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
         <div className="flex flex-col gap-2 shrink-0">
           {!hasAllowance && (
             <button
-              onClick={() => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, amountDue], chainId: arcTestnet.id })}
-              disabled={approvePending}
+              onClick={isCircle
+                ? handleCircleApprove
+                : () => approveUSDC({ address: CONTRACTS.USDC, abi: ERC20ABI, functionName: "approve", args: [CONTRACTS.FLOAT_CORE, amountDue], chainId: arcTestnet.id })}
+              disabled={approvePending || circlePending}
               className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border border-orange-400/30 text-orange-300 bg-orange-400/[0.06] hover:bg-orange-400/[0.12] disabled:opacity-50 transition-all"
             >
-              {approvePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {approvePending || circlePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
               Step 1: Approve USDC
             </button>
           )}
           <button
-            onClick={() => payWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "payInvoice", args: [inv.id], chainId: arcTestnet.id })}
-            disabled={!hasAllowance || payPending}
+            onClick={isCircle
+              ? handleCirclePay
+              : memoSupported
+                ? () => payWrite({
+                    address: ARC_MEMO_ADDRESS,
+                    abi: ARC_MEMO_ABI,
+                    functionName: "memo",
+                    args: buildBuyerMemoArgs(inv.id, "payInvoice", "pay", isBuyerFinanced ? "buyer" : "pool"),
+                    chainId: arcTestnet.id,
+                  })
+                : () => payWrite({ address: CONTRACTS.FLOAT_CORE, abi: FloatCoreABI, functionName: "payInvoice", args: [inv.id], chainId: arcTestnet.id })}
+            disabled={!hasAllowance || payPending || circlePending || memoCapabilityPending}
             className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-medium border transition-all disabled:opacity-50"
             style={{
               background: pastGrace ? "rgba(239,68,68,0.15)" : isUrgent ? "rgba(251,146,60,0.15)" : "rgba(222,219,200,0.12)",
@@ -471,7 +630,7 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
               color: pastGrace ? "#f87171" : isUrgent ? "#fb923c" : "#DEDBC8",
             }}
           >
-            {payPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {payPending || circlePending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {hasAllowance ? (hasPartial ? `Pay remaining $${amountDueFmt}` : `Pay $${amountDueFmt}`) : "Step 2: Pay"}
           </button>
           {pastGrace && (
@@ -532,7 +691,7 @@ function FundedCard({ inv, address, onSettled }: { inv: OnChainInvoice; address:
         </div>
       )}
 
-      <TxError error={(approveError || payError || partialError || defaultError) as Error | null} />
+      <TxError error={(circleError || approveError || payError || partialError || defaultError) as Error | null} />
     </div>
   );
 }
@@ -563,8 +722,13 @@ function buyerTierCollateral(tier: string): string {
 // ── Buyer page ───────────────────────────────────────────────────────────────
 
 export default function BuyerPage() {
-  const { isConnected, address } = useAppWallet();
+  const { isConnected, address, isCircle } = useAppWallet();
   const { invoices, isLoading, total, refetch } = useMyInvoices(address, "buyer");
+  const { data: walletBytecode, isLoading: memoCapabilityPending } = useBytecode({
+    address,
+    query: { enabled: !!address && !isCircle },
+  });
+  const memoSupported = isCircle || !walletBytecode || walletBytecode === "0x";
 
   const { data: rawBuyerScore } = useReadContract({
     address: CONTRACTS.FLOAT_CORE,
@@ -697,7 +861,7 @@ export default function BuyerPage() {
                 Needs Collateral ({pendingCollateral.length})
               </p>
               <div className="flex flex-col gap-3">
-                {pendingCollateral.map((inv) => <CollateralCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} />)}
+                {pendingCollateral.map((inv) => <CollateralCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} isCircle={isCircle} memoSupported={memoSupported} memoCapabilityPending={!isCircle && memoCapabilityPending} />)}
               </div>
             </motion.div>
           )}
@@ -709,7 +873,7 @@ export default function BuyerPage() {
                 Active Invoices ({funded.length})
               </p>
               <div className="flex flex-col gap-3">
-                {funded.map((inv) => <FundedCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} onSettled={refetch} />)}
+                {funded.map((inv) => <FundedCard key={String(inv.id)} inv={inv} address={address as `0x${string}`} isCircle={isCircle} memoSupported={memoSupported} memoCapabilityPending={!isCircle && memoCapabilityPending} onSettled={refetch} />)}
               </div>
             </motion.div>
           )}

@@ -82,6 +82,10 @@ const FAQ = [
     q: "Does Float support multiple currencies?",
     a: "No. Float is USDC-native by design, running on Arc Testnet where USDC is also the gas token. All invoice amounts, advances, and repayments are denominated in USDC with 6 decimal places.",
   },
+  {
+    q: "What are Arc transaction memos used for?",
+    a: "Float adds a deterministic invoice reference to collateral locks, buyer-financed advances, and full repayments. This lets support tools and indexers match a transaction to its invoice without storing memo data in FloatCore. The invoice contract remains the source of truth, and no Float contract redeployment is required.",
+  },
 ];
 
 export default function DocsPage() {
@@ -415,6 +419,12 @@ export default function DocsPage() {
                 address: "0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637",
                 desc: "Invoice lifecycle manager with dual credit scores. Handles 6-state invoice flow (PENDING_APPROVAL, PENDING_COLLATERAL, FUNDED, PAID, DEFAULTED, CANCELLED), buyer collateral locking, term-scaled fees, and atomic score updates for both seller and buyer.",
                 fns: ["createInvoice(address buyer, uint256 amount, uint256 dueDate)", "approveInvoice(uint256 id)", "rejectInvoice(uint256 id)", "lockCollateral(uint256 id)", "payInvoice(uint256 id)", "markDefault(uint256 id)", "feeBpsForTerm(address buyer, uint256 termSeconds)", "sellerScore(address) returns uint256", "buyerScore(address) returns uint256"],
+              },
+              {
+                name: "Arc Memo",
+                address: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
+                desc: "Arc system predeploy used for transaction reconciliation. Float wraps collateral locks, buyer-financed advances, and full repayments with an invoice memo. Arc preserves the signing EOA as msg.sender for the inner FloatCore call. Smart contract wallets use the direct FloatCore fallback.",
+                fns: ["memo(address target, bytes data, bytes32 memoId, bytes memoData)"],
               },
             ].map((c) => (
               <div key={c.name} className="p-6">

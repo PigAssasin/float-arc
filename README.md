@@ -28,6 +28,27 @@ forward even when pool liquidity is limited, without putting LP capital at risk 
 | FloatPool, ERC20 `fLP` | `0xCaC5c72a870fB989093e68F98027aa0639a4Bf77` |
 | FloatCore | `0xEE8b610cDd050ab5BbCb57Ccf9E3FbE900E6c637` |
 | USDC on Arc Testnet | `0x3600000000000000000000000000000000000000` |
+| Arc Memo predeploy | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` |
+
+---
+
+## Arc Transaction Memos
+
+Float attaches Arc transaction memos to the three buyer actions that move or
+commit funds: `lockCollateral`, `financeAsBuyer`, and `payInvoice`. Each memo
+contains a deterministic invoice and action identifier so support tools and
+indexers can match an onchain transaction to the corresponding Float invoice.
+
+The Arc Memo predeploy routes the inner FloatCore call through Arc's `CallFrom`
+precompile. The signing EOA remains `msg.sender`, so the existing authorization
+and USDC allowance model continue to work without redeploying FloatCore.
+
+Memos are reconciliation metadata only. FloatCore events and state remain the
+protocol source of truth. Browser EOAs and Circle EOA wallets use the memo path;
+smart contract wallets fall back to direct FloatCore calls.
+
+See [the memo specification](docs/memo-spec.md) for the ID schema, encoded data,
+wallet support, and reconciliation rules.
 
 ---
 

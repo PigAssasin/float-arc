@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { CONTRACTS } from "@/lib/contracts";
+import { ARC_MEMO_ADDRESS, isAllowedFloatMemoCall } from "@/lib/arc-memo";
+import type { Address, Hex } from "viem";
 
 const CIRCLE_API = "https://api.circle.com/v1/w3s";
 const API_KEY = process.env.CIRCLE_API_KEY!;
@@ -18,6 +20,7 @@ const ALLOWED_FUNCTIONS: Record<string, Set<string>> = {
     "payPartial(uint256,uint256)",
     "markDefault(uint256)",
   ]),
+  [ARC_MEMO_ADDRESS.toLowerCase()]: new Set(["memo(address,bytes,bytes32,bytes)"]),
 };
 
 // Creates a contract-execution challenge for a user-controlled wallet. The client
@@ -35,6 +38,24 @@ export async function POST(req: NextRequest) {
   const allowedForContract = ALLOWED_FUNCTIONS[String(contractAddress).toLowerCase()];
   if (!allowedForContract?.has(abiFunctionSignature)) {
     return NextResponse.json({ error: "contract call not allowed" }, { status: 403 });
+  }
+
+  if (String(contractAddress).toLowerCase() === ARC_MEMO_ADDRESS.toLowerCase()) {
+    const [target, innerData, memoId, memoData] = Array.isArray(abiParameters) ? abiParameters : [];
+    if (
+      typeof target !== "string" ||
+      typeof innerData !== "string" ||
+      typeof memoId !== "string" ||
+      typeof memoData !== "string" ||
+      !isAllowedFloatMemoCall(
+        target as Address,
+        innerData as Hex,
+        memoId as Hex,
+        memoData as Hex,
+      )
+    ) {
+      return NextResponse.json({ error: "memo target call not allowed" }, { status: 403 });
+    }
   }
 
   const body: Record<string, unknown> = {
